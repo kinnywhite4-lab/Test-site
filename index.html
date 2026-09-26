@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NovaVest — Investment Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <div class="brand">NovaVest</div>
+        <div class="welcome">Welcome back</div>
+      </div>
+      <button class="icon-btn" aria-label="Notifications">🔔</button>
+    </header>
+
+    <main id="app">
+      <section class="page active" data-page="home">
+        <div class="hero-card">
+          <div class="label">Total Balance</div>
+          <div class="balance">₦0.00</div>
+          <div class="demo-note">Demo account</div>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-card">
+            <span>Daily Return</span>
+            <strong>₦0.00</strong>
+          </div>
+          <div class="stat-card">
+            <span>Commission Return</span>
+            <strong>₦0.00</strong>
+          </div>
+        </div>
+
+        <div class="quick-actions">
+          <button class="action primary" data-action="deposit">
+            <span>＋</span><b>Deposit</b>
+          </button>
+          <button class="action" data-action="withdraw">
+            <span>↗</span><b>Withdraw</b>
+          </button>
+          <button class="action" data-action="gift">
+            <span>🎁</span><b>Gift Code</b>
+          </button>
+          <button class="action" data-action="invite">
+            <span>↗</span><b>Invite</b>
+          </button>
+        </div>
+
+        <div class="section-heading">
+          <h2>Recent Activity</h2>
+          <button class="text-btn">View all</button>
+        </div>
+        <div class="empty-card">
+          <div class="empty-icon">◌</div>
+          <p>No transactions yet</p>
+          <small>Your recent account activity will appear here.</small>
+        </div>
+      </section>
+
+      <section class="page" data-page="products">
+        <div class="page-title">
+          <span>Products</span>
+          <h1>Investment Products</h1>
+          <p>Demo products for the first interface version.</p>
+        </div>
+
+        <div class="product-card">
+          <div class="product-top">
+            <div>
+              <span class="badge">DEMO</span>
+              <h2>Starter Plan</h2>
+            </div>
+            <span class="product-icon">◈</span>
+          </div>
+          <div class="product-row"><span>Minimum</span><b>₦1,000</b></div>
+          <div class="product-row"><span>Daily Return</span><b>Configured later</b></div>
+          <button class="full-btn" data-action="invest">View Product</button>
+        </div>
+
+        <div class="product-card">
+          <div class="product-top">
+            <div>
+              <span class="badge">DEMO</span>
+              <h2>Growth Plan</h2>
+            </div>
+            <span class="product-icon">◆</span>
+          </div>
+          <div class="product-row"><span>Minimum</span><b>₦10,000</b></div>
+          <div class="product-row"><span>Daily Return</span><b>Configured later</b></div>
+          <button class="full-btn" data-action="invest">View Product</button>
+        </div>
+      </section>
+
+      <section class="page" data-page="team">
+        <div class="page-title">
+          <span>Team</span>
+          <h1>Referral Center</h1>
+          <p>Share your referral link and track your team.</p>
+        </div>
+
+        <div class="referral-card">
+          <span>Your Referral Code</span>
+          <strong>NOVA-123456</strong>
+          <button class="full-btn" data-action="copy">Copy Referral Link</button>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-card"><span>Direct Referrals</span><strong>0</strong></div>
+          <div class="stat-card"><span>Commission Return</span><strong>₦0.00</strong></div>
+        </div>
+
+        <div class="empty-card">
+          <div class="empty-icon">👥</div>
+          <p>Your team is empty</p>
+          <small>People who join through your referral will appear here.</small>
+        </div>
+      </section>
+
+      <section class="page" data-page="profile">
+        <div class="page-title">
+          <span>Profile</span>
+          <h1>Account</h1>
+          <p>Manage your account and preferences.</p>
+        </div>
+
+        <div class="profile-card">
+          <div class="avatar">N</div>
+          <div>
+            <strong>Nova User</strong>
+            <span>demo@example.com</span>
+          </div>
+        </div>
+
+        <div class="menu-card">
+          <button>Personal Information <span>›</span></button>
+          <button>Transaction History <span>›</span></button>
+          <button>Security <span>›</span></button>
+          <button>Notifications <span>›</span></button>
+          <button>Help & Support <span>›</span></button>
+          <button>Terms & Privacy <span>›</span></button>
+        </div>
+      </section>
+    </main>
+
+    <nav class="bottom-nav">
+      <button class="nav-item active" data-nav="home"><span>⌂</span><small>Home</small></button>
+      <button class="nav-item" data-nav="products"><span>▦</span><small>Products</small></button>
+      <button class="nav-item" data-nav="team"><span>♧</span><small>Team</small></button>
+      <button class="nav-item" data-nav="profile"><span>◎</span><small>Profile</small></button>
+    </nav>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script src="script.js"></script>
+</body>
+</html>
