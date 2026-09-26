@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NovaVest — Investment Dashboard</title>
+  <meta name="theme-color" content="#0d6b4d">
+  <title>NovaVest — Dashboard</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -11,138 +12,157 @@
     <header class="topbar">
       <div>
         <div class="brand">NovaVest</div>
-        <div class="welcome">Welcome back</div>
+        <div class="welcome" id="topbarSubtitle">Welcome back</div>
       </div>
-      <button class="icon-btn" aria-label="Notifications">🔔</button>
+      <button class="icon-btn" aria-label="Notifications" data-toast="Notifications are part of the next build.">♧</button>
     </header>
 
     <main id="app">
+      <!-- HOME -->
       <section class="page active" data-page="home">
-        <div class="hero-card">
-          <div class="label">Total Balance</div>
-          <div class="balance">₦0.00</div>
-          <div class="demo-note">Demo account</div>
+        <div class="company-showcase" aria-label="Company showcase">
+          <div class="showcase-track">
+            <div class="showcase-slide slide-one"><div><span>COMPANY</span><strong>Welcome to NovaVest</strong><small>Your company information and promotional visuals will appear here.</small></div></div>
+            <div class="showcase-slide slide-two"><div><span>OUR COMPANY</span><strong>Building for the future</strong><small>Company building, team and brand visuals can be managed later.</small></div></div>
+            <div class="showcase-slide slide-three"><div><span>DISCOVER</span><strong>Explore the platform</strong><small>This showcase area is ready for your company flyers and animations.</small></div></div>
+          </div>
+          <div class="showcase-dots"><i></i><i></i><i></i></div>
         </div>
 
-        <div class="stats-grid">
-          <div class="stat-card">
-            <span>Daily Return</span>
-            <strong>₦0.00</strong>
-          </div>
-          <div class="stat-card">
-            <span>Commission Return</span>
-            <strong>₦0.00</strong>
-          </div>
+        <div class="stats-grid home-stats">
+          <div class="stat-card"><span>Total Balance</span><strong id="homeTotalBalance">₦0.00</strong></div>
+          <div class="stat-card"><span>Daily Return</span><strong id="homeDailyReturn">₦0.00</strong></div>
+          <div class="stat-card"><span>Commission Return</span><strong id="homeCommission">₦0.00</strong></div>
         </div>
 
         <div class="quick-actions">
-          <button class="action primary" data-action="deposit">
-            <span>＋</span><b>Deposit</b>
-          </button>
-          <button class="action" data-action="withdraw">
-            <span>↗</span><b>Withdraw</b>
-          </button>
-          <button class="action" data-action="gift">
-            <span>🎁</span><b>Gift Code</b>
-          </button>
-          <button class="action" data-action="invite">
-            <span>↗</span><b>Invite</b>
-          </button>
+          <button class="action primary" data-open="deposit"><span>＋</span><b>Deposit</b></button>
+          <button class="action" data-open="withdraw"><span>↗</span><b>Withdraw</b></button>
+          <button class="action" data-toast="Gift Code will be connected to the backend later."><span>🎁</span><b>Gift Code</b></button>
+          <button class="action" data-nav-target="team"><span>↗</span><b>Invite</b></button>
         </div>
 
-        <div class="section-heading">
-          <h2>Recent Activity</h2>
-          <button class="text-btn">View all</button>
-        </div>
-        <div class="empty-card">
-          <div class="empty-icon">◌</div>
-          <p>No transactions yet</p>
-          <small>Your recent account activity will appear here.</small>
+        <div class="company-info-card">
+          <span>ABOUT THE COMPANY</span>
+          <h2>NovaVest</h2>
+          <p>This section is reserved for your company description, announcements and important information. The final company content will be supplied later.</p>
         </div>
       </section>
 
+      <!-- PRODUCTS -->
       <section class="page" data-page="products">
-        <div class="page-title">
-          <span>Products</span>
-          <h1>Investment Products</h1>
-          <p>Demo products for the first interface version.</p>
+        <div class="page-title product-heading"><span>Products</span><h1>Investment Products</h1><p>All product details shown here are demo values and will later be controlled from the admin panel.</p></div>
+        <div class="product-tabs" id="productTabs">
+          <button class="product-tab active" data-category="All">All</button>
+          <button class="product-tab" data-category="VIP">VIP Products</button>
+          <button class="product-tab" data-category="SVIP">SVIP Products</button>
         </div>
-
-        <div class="product-card">
-          <div class="product-top">
-            <div>
-              <span class="badge">DEMO</span>
-              <h2>Starter Plan</h2>
-            </div>
-            <span class="product-icon">◈</span>
-          </div>
-          <div class="product-row"><span>Minimum</span><b>₦1,000</b></div>
-          <div class="product-row"><span>Daily Return</span><b>Configured later</b></div>
-          <button class="full-btn" data-action="invest">View Product</button>
-        </div>
-
-        <div class="product-card">
-          <div class="product-top">
-            <div>
-              <span class="badge">DEMO</span>
-              <h2>Growth Plan</h2>
-            </div>
-            <span class="product-icon">◆</span>
-          </div>
-          <div class="product-row"><span>Minimum</span><b>₦10,000</b></div>
-          <div class="product-row"><span>Daily Return</span><b>Configured later</b></div>
-          <button class="full-btn" data-action="invest">View Product</button>
-        </div>
+        <div id="productList"></div>
       </section>
 
+      <!-- TEAM -->
       <section class="page" data-page="team">
-        <div class="page-title">
-          <span>Team</span>
-          <h1>Referral Center</h1>
-          <p>Share your referral link and track your team.</p>
-        </div>
-
+        <div class="page-title"><span>Team</span><h1>Referral Center</h1><p>Separate direct referrals (Level 1) from referrals made by your team (Level 2).</p></div>
         <div class="referral-card">
-          <span>Your Referral Code</span>
-          <strong>NOVA-123456</strong>
-          <button class="full-btn" data-action="copy">Copy Referral Link</button>
+          <span>Your Referral Code</span><strong>NOVA-123456</strong>
+          <div class="ref-link-row"><code id="referralLink">https://example.com/?ref=NOVA-123456</code><button class="small-btn" data-action="copy">Copy</button></div>
         </div>
 
-        <div class="stats-grid">
-          <div class="stat-card"><span>Direct Referrals</span><strong>0</strong></div>
-          <div class="stat-card"><span>Commission Return</span><strong>₦0.00</strong></div>
+        <div class="commission-grid">
+          <div class="commission-card"><span>Level 1 Commission</span><strong>Configured later</strong><small>Direct referrals</small></div>
+          <div class="commission-card"><span>Level 2 Commission</span><strong>Configured later</strong><small>Team's referrals</small></div>
         </div>
 
-        <div class="empty-card">
-          <div class="empty-icon">👥</div>
-          <p>Your team is empty</p>
-          <small>People who join through your referral will appear here.</small>
-        </div>
+        <div class="section-heading"><h2>First Referral</h2><span class="count-pill">0 members</span></div>
+        <div class="team-list" id="level1List"><div class="empty-card compact"><div class="empty-icon">1</div><p>No Level 1 members</p><small>People you refer directly will appear here.</small></div></div>
+
+        <div class="section-heading"><h2>Second Referral</h2><span class="count-pill">0 members</span></div>
+        <div class="team-list" id="level2List"><div class="empty-card compact"><div class="empty-icon">2</div><p>No Level 2 members</p><small>Members referred by your Level 1 team will appear here.</small></div></div>
       </section>
 
+      <!-- PROFILE -->
       <section class="page" data-page="profile">
-        <div class="page-title">
-          <span>Profile</span>
-          <h1>Account</h1>
-          <p>Manage your account and preferences.</p>
+        <div class="page-title"><span>Profile</span><h1>Account</h1><p>Manage your account, balances, financial history, bank details and support links.</p></div>
+
+        <div class="profile-identity">
+          <div class="avatar large">N</div>
+          <div><span class="identity-label">Account holder</span><strong>Nova User</strong><span>demo@example.com</span></div>
+          <button class="identity-more" data-toast="Account identity will be connected to login later.">•••</button>
         </div>
 
-        <div class="profile-card">
-          <div class="avatar">N</div>
-          <div>
-            <strong>Nova User</strong>
-            <span>demo@example.com</span>
-          </div>
+        <div class="profile-balance-grid">
+          <div class="profile-balance-card"><span>Deposit Balance</span><strong id="profileDepositBalance">₦0.00</strong><small>Funds placed as deposits</small></div>
+          <div class="profile-balance-card withdrawable"><span>Withdrawal Balance</span><strong id="profileWithdrawalBalance">₦0.00</strong><small>Available to withdraw</small></div>
+          <div class="profile-balance-card"><span>Total Income</span><strong id="profileTotalIncome">₦0.00</strong><small>Income + referral + other income</small></div>
         </div>
+        <div class="withdrawn-summary"><span>Total Successfully Withdrawn</span><strong id="profileTotalWithdrawn">₦0.00</strong></div>
 
         <div class="menu-card">
-          <button>Personal Information <span>›</span></button>
-          <button>Transaction History <span>›</span></button>
-          <button>Security <span>›</span></button>
-          <button>Notifications <span>›</span></button>
-          <button>Help & Support <span>›</span></button>
-          <button>Terms & Privacy <span>›</span></button>
+          <button data-open="depositHistory"><span><i>＋</i> Deposit History</span><b>›</b></button>
+          <button data-open="withdrawalHistory"><span><i>↗</i> Withdrawal History</span><b>›</b></button>
+          <button data-open="transactions"><span><i>↔</i> Transaction History</span><b>›</b></button>
+          <button data-open="bank"><span><i>₦</i> Bank</span><b>›</b></button>
+          <button data-toast="Security settings will be connected later."><span><i>⌁</i> Security</span><b>›</b></button>
+          <button data-toast="Notifications will be connected later."><span><i>◉</i> Notifications</span><b>›</b></button>
         </div>
+
+        <div class="social-card">
+          <div><span class="social-icon">✈</span><div><strong>Telegram Group</strong><small>Join the community group</small></div></div>
+          <a href="https://t.me/your_group" target="_blank" rel="noopener" class="social-btn">Open</a>
+        </div>
+        <div class="social-card">
+          <div><span class="social-icon">✈</span><div><strong>Telegram Channel</strong><small>Follow official announcements</small></div></div>
+          <a href="https://t.me/your_channel" target="_blank" rel="noopener" class="social-btn">Open</a>
+        </div>
+      </section>
+
+      <!-- DEPOSIT -->
+      <section class="page subpage" data-page="deposit">
+        <div class="subpage-head"><button class="back-btn" data-back>‹</button><h1>Deposit</h1><span class="head-icon">▣</span></div>
+        <div class="recharge-hero"><div class="hero-image-placeholder"><span>DEPOSIT</span><strong>Account Deposit</strong><small>Multi-channel quick deposit</small></div><div class="balance-chip"><span>Balance</span><b id="depositPageBalance">₦0.00</b></div></div>
+        <div class="form-section"><div class="section-heading"><h2>Deposit amount</h2><span>NGN</span></div>
+          <div class="amount-grid" id="depositAmounts">
+            <button class="amount active">3,000</button><button class="amount">5,000</button><button class="amount">10,000</button><button class="amount">20,000</button><button class="amount">40,000</button><button class="amount">50,000</button><button class="amount">100,000</button><button class="amount">200,000</button><button class="amount">300,000</button><button class="amount">500,000</button><button class="amount">1,000,000</button>
+          </div>
+          <div class="money-input"><span>₦</span><input id="depositAmount" inputmode="numeric" placeholder="Please enter the deposit amount"></div>
+        </div>
+        <div class="form-section"><h2>Payment channels</h2><button class="payment-channel selected"><span class="channel-icon">▣</span><span><b>Deposit Channel 1</b><small>Configured from admin</small></span><i>✓</i></button></div>
+        <button class="full-btn big" data-toast="Deposit processing will be connected to the backend/payment provider later.">Deposit now</button>
+      </section>
+
+      <!-- WITHDRAW -->
+      <section class="page subpage" data-page="withdraw">
+        <div class="subpage-head"><button class="back-btn" data-back>‹</button><h1>Withdraw</h1><span class="head-icon">↗</span></div>
+        <div class="withdraw-balance"><span>Available withdrawal balance</span><strong id="withdrawAvailableBalance">₦0.00</strong></div>
+        <div class="form-section"><h2>Withdrawal amount</h2><div class="money-input"><span>₦</span><input id="withdrawAmount" inputmode="numeric" placeholder="Enter withdrawal amount"></div><small class="helper">Only your withdrawal balance can be used for withdrawals. Deposit balance cannot be withdrawn directly.</small></div>
+        <div class="form-section"><div class="section-heading"><h2>Withdrawal bank</h2><button class="text-btn" data-open="bank">Edit</button></div>
+          <div class="saved-bank"><div class="bank-icon">₦</div><div><strong id="savedBankName">No bank saved</strong><span id="savedBankAccount">Add a bank account in Profile → Bank</span></div><b>›</b></div>
+        </div>
+        <button class="full-btn big" data-toast="Withdrawal processing will be connected to the backend later.">Withdraw</button>
+      </section>
+
+      <!-- BANK -->
+      <section class="page subpage" data-page="bank">
+        <div class="subpage-head"><button class="back-btn" data-back>‹</button><h1>Bank</h1><span class="head-icon">₦</span></div>
+        <div class="notice">Save the bank account you want the withdrawal flow to use. This demo stores the values only in this browser.</div>
+        <div class="form-section"><label>Bank name</label><input class="text-input" id="bankName" placeholder="Enter bank name"><label>Account name</label><input class="text-input" id="accountName" placeholder="Enter account name"><label>Account number</label><input class="text-input" id="accountNumber" inputmode="numeric" maxlength="10" placeholder="Enter 10-digit account number"><button class="full-btn big" id="saveBank">Save bank account</button></div>
+      </section>
+
+      <!-- TRANSACTION HISTORY -->
+      <section class="page subpage" data-page="transactions">
+        <div class="subpage-head"><button class="back-btn" data-back>‹</button><h1>Transaction History</h1><span class="head-icon">↔</span></div>
+        <div class="filter-row"><button class="filter active">All</button><button class="filter">Deposit</button><button class="filter">Withdrawal</button><button class="filter">Income</button><button class="filter">Referral</button></div>
+        <div class="empty-card"><div class="empty-icon">↔</div><p>No transaction history</p><small>This combined history will include deposits, withdrawals, income, referral commissions and other account transactions.</small></div>
+      </section>
+
+      <section class="page subpage" data-page="depositHistory">
+        <div class="subpage-head"><button class="back-btn" data-back>‹</button><h1>Deposit History</h1><span class="head-icon">＋</span></div>
+        <div class="empty-card"><div class="empty-icon">＋</div><p>No deposits yet</p><small>Deposit records will appear here.</small></div>
+      </section>
+
+      <section class="page subpage" data-page="withdrawalHistory">
+        <div class="subpage-head"><button class="back-btn" data-back>‹</button><h1>Withdrawal History</h1><span class="head-icon">↗</span></div>
+        <div class="empty-card"><div class="empty-icon">↗</div><p>No withdrawals yet</p><small>Withdrawal records will appear here.</small></div>
       </section>
     </main>
 
@@ -153,7 +173,6 @@
       <button class="nav-item" data-nav="profile"><span>◎</span><small>Profile</small></button>
     </nav>
   </div>
-
   <div class="toast" id="toast"></div>
   <script src="script.js"></script>
 </body>
