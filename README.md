@@ -1,15 +1,21 @@
-# NovaVest Investment Platform — V2 Prototype
+# NovaVest Investment Platform — V3 Prototype
 
-This version adds the next interface layer based on the supplied reference:
-- Deposit page with amount presets, amount input and payment channel placeholder.
-- Withdrawal page with amount input and saved-bank selection.
-- Profile history pages: Deposit History, Withdrawal History and combined Transaction History.
-- Profile → Bank page. The demo saves the bank details only in the browser using localStorage.
-- Team page with separate Level 1 (direct) and Level 2 (indirect/team) sections and separate commission placeholders.
-- Telegram Group and Telegram Channel links on Profile; replace the placeholder URLs later from the admin/database layer.
+Mobile-first front-end prototype for the investment platform.
 
-## Git workflow
-Replace the files in the GitHub repository with this version, commit, and push. Vercel will redeploy the connected project automatically.
+## Current prototype
+- Home company showcase/animation area
+- Total balance, daily return and commission return summary cards
+- Deposit and withdrawal navigation
+- Products page with 10 demo products and All/VIP/SVIP tabs
+- Product price, cycle, daily income, total revenue and hourly income are demo values
+- Team page with Level 1 and Level 2 referral sections
+- Profile identity and separate deposit balance, withdrawal balance, total income and total successfully withdrawn
+- Deposit history, withdrawal history and combined transaction history placeholders
+- Bank account saving for the browser demo
+- Telegram group/channel placeholders
 
 ## Important
-This is a front-end prototype. Financial balances, returns, commissions, deposits and withdrawals are placeholders until a real backend, authentication, database and payment/banking integration are implemented. Do not treat demo values as real financial records.
+All financial figures and product values in this front-end are demo placeholders. They are not connected to a real investment, payment or earnings system. Product settings, commissions, balances, payment channels and Telegram links are intended to be controlled by a future backend/admin panel.
+
+## Git/Vercel workflow
+Use the `development` branch for testing. Vercel should create a preview deployment for commits pushed to that branch. Merge to `main` only after the preview has been reviewed.
