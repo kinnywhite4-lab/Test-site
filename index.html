@@ -38,7 +38,7 @@
         <div class="quick-actions">
           <button class="action primary" data-open="deposit"><span>＋</span><b>Deposit</b></button>
           <button class="action" data-open="withdraw"><span>↗</span><b>Withdraw</b></button>
-          <button class="action" data-toast="Gift Code will be connected to the backend later."><span>🎁</span><b>Gift Code</b></button>
+          <button class="action" data-open="giftCode"><span>🎁</span><b>Gift Code</b></button>
           <button class="action" data-nav-target="team"><span>↗</span><b>Invite</b></button>
         </div>
 
@@ -132,7 +132,14 @@
           <div class="money-input"><span>₦</span><input id="depositAmount" inputmode="numeric" placeholder="Please enter the deposit amount"></div>
         </div>
         <div class="form-section"><h2>Payment channels</h2><button class="payment-channel selected"><span class="channel-icon">▣</span><span><b>Deposit Channel 1</b><small>Configured from admin</small></span><i>✓</i></button></div>
-        <button class="full-btn big" data-toast="Deposit processing will be connected to the backend/payment provider later.">Deposit now</button>
+        <button class="full-btn big" id="depositBtn">Deposit now</button>
+      </section>
+
+      <!-- GIFT CODE -->
+      <section class="page subpage" data-page="giftCode">
+        <div class="subpage-head"><button class="back-btn" data-back>‹</button><h1>Gift Code</h1><span class="head-icon">🎁</span></div>
+        <div class="history-intro"><span>REWARD</span><strong>Redeem Gift Code</strong><small>Enter a valid gift code to add its configured reward to your withdrawal balance.</small></div>
+        <div class="form-section"><label>Gift code</label><input class="text-input" id="giftCodeInput" placeholder="Enter gift code" autocomplete="off"><button class="full-btn big" id="giftCodeBtn">Redeem code</button></div>
       </section>
 
       <!-- WITHDRAW -->
@@ -143,20 +150,20 @@
         <div class="form-section"><div class="section-heading"><h2>Withdrawal bank</h2><button class="text-btn" data-open="bank">Edit</button></div>
           <div class="saved-bank"><div class="bank-icon">₦</div><div><strong id="savedBankName">No bank saved</strong><span id="savedBankAccount">Add a bank account in Profile → Bank</span></div><b>›</b></div>
         </div>
-        <button class="full-btn big" data-toast="Withdrawal processing will be connected to the backend later.">Withdraw</button>
+        <button class="full-btn big" id="withdrawBtn">Withdraw</button>
       </section>
 
       <!-- BANK -->
       <section class="page subpage" data-page="bank">
         <div class="subpage-head"><button class="back-btn" data-back>‹</button><h1>Bank</h1><span class="head-icon">₦</span></div>
-        <div class="notice">Save the bank account you want the withdrawal flow to use. This demo stores the values only in this browser.</div>
+        <div class="notice">Save the bank account you want the withdrawal flow to use. It will be stored in the backend for this browser account.</div>
         <div class="form-section"><label>Bank name</label><input class="text-input" id="bankName" placeholder="Enter bank name"><label>Account name</label><input class="text-input" id="accountName" placeholder="Enter account name"><label>Account number</label><input class="text-input" id="accountNumber" inputmode="numeric" maxlength="10" placeholder="Enter 10-digit account number"><button class="full-btn big" id="saveBank">Save bank account</button></div>
       </section>
 
       <!-- TRANSACTION HISTORY -->
       <section class="page subpage" data-page="transactions">
         <div class="subpage-head"><button class="back-btn" data-back>‹</button><h1>Transaction History</h1><span class="head-icon">↔</span></div>
-        <div class="filter-row"><button class="filter active">All</button><button class="filter">Deposit</button><button class="filter">Withdrawal</button><button class="filter">Income</button><button class="filter">Referral</button></div>
+        <div class="filter-row"><button class="filter active" data-history-filter="all">All</button><button class="filter" data-history-filter="deposit">Deposit</button><button class="filter" data-history-filter="withdraw">Withdrawal</button><button class="filter" data-history-filter="income">Income</button><button class="filter" data-history-filter="commission">Referral</button></div>
         <div class="empty-card"><div class="empty-icon">↔</div><p>No transaction history</p><small>This combined history will include deposits, withdrawals, income, referral commissions and other account transactions.</small></div>
       </section>
 
