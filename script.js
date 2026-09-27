@@ -18,11 +18,11 @@ const products=[
   {name:'Product 3',category:'VIP',price:10000,cycle:35,daily:3000,total:105000,hourly:125},
   {name:'Product 4',category:'VIP',price:20000,cycle:40,daily:4200,total:168000,hourly:175},
   {name:'Product 5',category:'VIP',price:30000,cycle:45,daily:6000,total:270000,hourly:250},
-  {name:'Product 6',category:'SVIP',price:50000,cycle:45,daily:11000,total:495000,hourly:458},
-  {name:'Product 7',category:'SVIP',price:75000,cycle:50,daily:16500,total:825000,hourly:688},
-  {name:'Product 8',category:'SVIP',price:100000,cycle:55,daily:23000,total:1265000,hourly:958},
-  {name:'Product 9',category:'SVIP',price:200000,cycle:60,daily:48000,total:2880000,hourly:2000},
-  {name:'Product 10',category:'SVIP',price:300000,cycle:60,daily:72000,total:4320000,hourly:3000}
+  {name:'Product 6',category:'VIP',price:50000,cycle:45,daily:11000,total:495000,hourly:458},
+  {name:'Product 7',category:'VIP',price:75000,cycle:50,daily:16500,total:825000,hourly:688},
+  {name:'Product 8',category:'VIP',price:100000,cycle:55,daily:23000,total:1265000,hourly:958},
+  {name:'Product 9',category:'VIP',price:200000,cycle:60,daily:48000,total:2880000,hourly:2000},
+  {name:'Product 10',category:'VIP',price:300000,cycle:60,daily:72000,total:4320000,hourly:3000}
 ];
 
 function money(value){return '₦'+Number(value).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}
@@ -38,10 +38,10 @@ function updateBalances(){
   Object.entries(values).forEach(([id,value])=>{const el=document.getElementById(id);if(el)el.textContent=value});
 }
 
-function renderProducts(category='All'){
+function renderProducts(category='VIP'){
   const list=document.getElementById('productList');
   if(!list)return;
-  const shown=category==='All'?products:products.filter(p=>p.category===category);
+  const shown=products.filter(p=>p.category==='VIP' && (category==='VIP' || category==='All'));
   list.innerHTML=shown.map((p,index)=>`<article class="product-card product-reference-card">
     <div class="product-image-wrap"><span class="hot-badge">Demo</span><div class="product-image-placeholder"><span>${String(products.indexOf(p)+1).padStart(2,'0')}</span></div></div>
     <div class="product-content">
@@ -82,5 +82,5 @@ function renderBank(){if(!saved)return;document.getElementById('savedBankName').
 if(saved){document.getElementById('bankName').value=saved.bankName;document.getElementById('accountName').value=saved.accountName;document.getElementById('accountNumber').value=saved.accountNumber;renderBank()}
 document.getElementById('saveBank').addEventListener('click',()=>{const bankName=document.getElementById('bankName').value.trim(),accountName=document.getElementById('accountName').value.trim(),accountNumber=document.getElementById('accountNumber').value.trim();if(!bankName||!accountName||!/^[0-9]{10}$/.test(accountNumber)){showToast('Enter a bank name, account name and valid 10-digit account number.');return}localStorage.setItem('novaBank',JSON.stringify({bankName,accountName,accountNumber}));renderBank();showToast('Bank account saved for this demo.');showPage('withdraw')});
 
-renderProducts();
+renderProducts('VIP');
 updateBalances();
