@@ -1,0 +1,2 @@
+import { ensureSchema, ensureUser, json, method, sql } from './_db.js';
+export default async function handler(req,res){if(!method(req,res,['GET']))return;try{await ensureSchema();const userId=await ensureUser(req);const rows=await sql`SELECT id,type,amount,status,reference,detail,created_at FROM transactions WHERE user_id=${userId} ORDER BY created_at DESC LIMIT 200`;return json(res,200,{ok:true,transactions:rows});}catch(e){console.error(e);return json(res,500,{ok:false,error:'History could not be loaded.'});}}
