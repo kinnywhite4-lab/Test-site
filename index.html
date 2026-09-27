@@ -51,11 +51,18 @@
 
       <!-- PRODUCTS -->
       <section class="page" data-page="products">
-        <div class="page-title product-heading"><span>Products</span><h1>Investment Products</h1><p>All product details shown here are demo values and will later be controlled from the admin panel.</p></div>
+        <div class="page-title product-heading product-page-head"><div><span>Products</span><h1>Investment Products</h1><p>All product details shown here are demo values and will later be controlled from the admin panel.</p></div><button class="top-page-action" data-open="myProducts" aria-label="My Products"><span>▣</span><small>My Products</small></button></div>
         <div class="product-tabs" id="productTabs">
           <button class="product-tab active" data-category="VIP">VIP Products</button>
         </div>
         <div id="productList"></div>
+      </section>
+
+      <!-- MY PRODUCTS -->
+      <section class="page subpage" data-page="myProducts">
+        <div class="subpage-head"><button class="back-btn" data-back>‹</button><h1>My Products</h1><span class="head-icon">▣</span></div>
+        <div class="history-intro"><span>MY VIP PRODUCTS</span><strong>Purchased Products</strong><small>VIP products you have bought will be recorded here.</small></div>
+        <div id="myProductsList"></div>
       </section>
 
       <!-- TEAM -->
@@ -125,7 +132,7 @@
           <div class="money-input"><span>₦</span><input id="depositAmount" inputmode="numeric" placeholder="Please enter the deposit amount"></div>
         </div>
         <div class="form-section"><h2>Payment channels</h2><button class="payment-channel selected"><span class="channel-icon">▣</span><span><b>Deposit Channel 1</b><small>Configured from admin</small></span><i>✓</i></button></div>
-        <button class="full-btn big" data-action="deposit">Deposit now</button>
+        <button class="full-btn big" data-toast="Deposit processing will be connected to the backend/payment provider later.">Deposit now</button>
       </section>
 
       <!-- WITHDRAW -->
@@ -136,7 +143,7 @@
         <div class="form-section"><div class="section-heading"><h2>Withdrawal bank</h2><button class="text-btn" data-open="bank">Edit</button></div>
           <div class="saved-bank"><div class="bank-icon">₦</div><div><strong id="savedBankName">No bank saved</strong><span id="savedBankAccount">Add a bank account in Profile → Bank</span></div><b>›</b></div>
         </div>
-        <button class="full-btn big" data-action="withdraw">Withdraw</button>
+        <button class="full-btn big" data-toast="Withdrawal processing will be connected to the backend later.">Withdraw</button>
       </section>
 
       <!-- BANK -->
@@ -146,37 +153,7 @@
         <div class="form-section"><label>Bank name</label><input class="text-input" id="bankName" placeholder="Enter bank name"><label>Account name</label><input class="text-input" id="accountName" placeholder="Enter account name"><label>Account number</label><input class="text-input" id="accountNumber" inputmode="numeric" maxlength="10" placeholder="Enter 10-digit account number"><button class="full-btn big" id="saveBank">Save bank account</button></div>
       </section>
 
-      
-<!-- GIFT CODE -->
-<section class="page subpage" data-page="giftCode">
-  <div class="subpage-head">
-    <button class="back-btn" data-back>‹</button>
-    <h1>Gift Code</h1>
-    <span class="head-icon">🎁</span>
-  </div>
-
-  <div class="notice">
-    Enter a valid gift code to redeem an available bonus.
-  </div>
-
-  <div class="form-section">
-    <label>Gift code</label>
-    <input class="text-input" id="giftCodeInput" type="text"
-      autocomplete="off" placeholder="Enter gift code">
-
-    <button class="full-btn big" data-action="gift-code">
-      Redeem Gift Code
-    </button>
-  </div>
-
-  <div class="company-info-card">
-    <span>DEMO CODES</span>
-    <h2>Gift Code</h2>
-    <p>Demo codes currently available: WELCOME1000, NOVA500 and BONUS1500.</p>
-  </div>
-</section>
-
-<!-- TRANSACTION HISTORY -->
+      <!-- TRANSACTION HISTORY -->
       <section class="page subpage" data-page="transactions">
         <div class="subpage-head"><button class="back-btn" data-back>‹</button><h1>Transaction History</h1><span class="head-icon">↔</span></div>
         <div class="filter-row"><button class="filter active">All</button><button class="filter">Deposit</button><button class="filter">Withdrawal</button><button class="filter">Income</button><button class="filter">Referral</button></div>
@@ -185,12 +162,12 @@
 
       <section class="page subpage" data-page="depositHistory">
         <div class="subpage-head"><button class="back-btn" data-back>‹</button><h1>Deposit History</h1><span class="head-icon">＋</span></div>
-        <div class="empty-card"><div class="empty-icon">＋</div><p>No deposits yet</p><small>Deposit records will appear here.</small></div>
+        <div id="depositHistoryList"></div>
       </section>
 
       <section class="page subpage" data-page="withdrawalHistory">
         <div class="subpage-head"><button class="back-btn" data-back>‹</button><h1>Withdrawal History</h1><span class="head-icon">↗</span></div>
-        <div class="empty-card"><div class="empty-icon">↗</div><p>No withdrawals yet</p><small>Withdrawal records will appear here.</small></div>
+        <div id="withdrawalHistoryList"></div>
       </section>
     </main>
 
