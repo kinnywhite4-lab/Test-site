@@ -4,16 +4,25 @@ import crypto from 'crypto';
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json');
 
+  // -----------------------------------------------------------
+  // 1. GET: Fetch Channels or User Deposit History
+  // -----------------------------------------------------------
   if (req.method === 'GET') {
     const action = req.query.action;
 
-    // Fetch active channels for deposit page
+    // Public / authenticated channels query
     if (action === 'channels') {
       try {
-        const channels = await sql`SELECT id, name, bank_name, account_name, account_number, instructions FROM payment_channels WHERE status = 'Active' ORDER BY id ASC`;
+        const channels = await sql`
+          SELECT id, name, bank_name, account_name, account_number, instructions 
+          FROM payment_channels 
+          WHERE status = 'Active' 
+          ORDER BY id ASC
+        `;
         return res.status(200).json({ success: true, channels });
       } catch (err) {
-        return res.status(500).json({ error: 'Failed to load channels.' });
+        console.error('Failed to load payment channels:', err);
+        return res.status(500).json({ error: 'Failed to load payment channels.' });
       }
     }
 
@@ -22,18 +31,23 @@ export default async function handler(req, res) {
 
     try {
       const deposits = await sql`
-        SELECT d.*, c.name as channel_name 
+        SELECT d.id, d.amount, d.reference, d.status, d.sender_name, d.proof_url, d.created_at,
+               c.name AS channel_name, c.bank_name, c.account_name, c.account_number
         FROM deposits d
         LEFT JOIN payment_channels c ON d.channel_id = c.id
         WHERE d.user_id = ${user.id} 
         ORDER BY d.created_at DESC
       `;
       return res.status(200).json({ success: true, deposits });
-    } catch {
+    } catch (err) {
+      console.error('Failed to load user deposits:', err);
       return res.status(500).json({ error: 'Failed to load deposits.' });
     }
   }
 
+  // -----------------------------------------------------------
+  // 2. POST: Submit Deposit Request
+  // -----------------------------------------------------------
   if (req.method === 'POST') {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Please log in to continue.' });
@@ -45,30 +59,56 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Minimum recharge amount is ₦1,000.' });
     }
     if (!channel_id) {
-      return res.status(400).json({ error: 'Please select a recharge payment channel.' });
+      return res.status(400).json({ error: 'Please select a deposit channel.' });
+    }
+    if (!sender_name || !sender_name.trim()) {
+      return res.status(400).json({ error: 'Please enter the depositor/sender full name.' });
     }
 
     try {
-      const ref = 'DEP' + Date.now().toString(36).toUpperCase() + crypto.randomBytes(2).toString('hex').toUpperCase();
+      // Verify selected channel exists
+      const channelRows = await sql`
+        SELECT id, name FROM payment_channels WHERE id = ${channel_id} AND status = 'Active'
+      `;
+      if (!channelRows.length) {
+        return res.status(400).json({ error: 'Selected payment channel is no longer active.' });
+      }
 
-      await sql`
-        INSERT INTO deposits (user_id, amount, payment_method, status, reference, channel_id, sender_name, proof_url)
-        VALUES (${user.id}, ${parsedAmount}, 'Bank Transfer', 'Pending', ${ref}, ${channel_id}, ${sender_name || ''}, ${proof_url || ''})
+      const ref = 'DEP' + Date.now().toString(36).toUpperCase() + crypto.randomBytes(3).toString('hex').toUpperCase();
+
+      // Clean, validated image string or empty
+      const receiptData = (proof_url && typeof proof_url === 'string' && proof_url.startsWith('data:image'))
+        ? proof_url
+        : null;
+
+      // 1. Insert Deposit Record
+      const insertResult = await sql`
+        INSERT INTO deposits (user_id, amount, payment_method, status, reference, channel_id, sender_name, proof_url, created_at)
+        VALUES (${user.id}, ${parsedAmount}, 'Bank Transfer', 'Pending', ${ref}, ${channel_id}, ${sender_name.trim()}, ${receiptData}, CURRENT_TIMESTAMP)
+        RETURNING id, reference, amount, status
       `;
 
-      await sql`
-        INSERT INTO transactions (user_id, type, title, amount, direction)
-        VALUES (${user.id}, 'Deposit', ${'Recharge Pending (' + ref + ')'}, ${parsedAmount}, 'in')
-      `;
+      const newDeposit = insertResult[0];
+
+      // 2. Create Transaction Record safely
+      try {
+        await sql`
+          INSERT INTO transactions (user_id, type, title, amount, direction, created_at)
+          VALUES (${user.id}, 'Deposit', ${'Recharge Pending (' + ref + ')'}, ${parsedAmount}, 'in', CURRENT_TIMESTAMP)
+        `;
+      } catch (txErr) {
+        console.warn('Could not record pending transaction history, continuing:', txErr.message);
+      }
 
       return res.status(200).json({
         success: true,
-        message: 'Recharge request submitted. Awaiting administrator approval.',
-        reference: ref
+        message: 'Recharge request submitted successfully. Awaiting administrator review.',
+        reference: newDeposit.reference,
+        deposit_id: newDeposit.id
       });
     } catch (err) {
-      console.error('Deposit Error:', err);
-      return res.status(500).json({ error: 'Failed to submit deposit. Please try again.' });
+      console.error('Critical Deposit Insert Error:', err);
+      return res.status(500).json({ error: err.message || 'Database error processing your deposit.' });
     }
   }
 
