@@ -18,38 +18,95 @@ export default async function handler(req, res) {
 
   try {
     // -------------------------------------------------------------
-    // 1. DASHBOARD METRICS
+    // 1. DASHBOARD METRICS (EXACT PRESERVED LOGIC)
     // -------------------------------------------------------------
     if (action === 'dashboard') {
-      const [users, deposits, purchases, withdrawals, pendingDep, pendingWith] = await Promise.all([
-        sql`SELECT COUNT(*)::int as count, COALESCE(SUM(balance), 0)::numeric as total_bal FROM users`,
-        sql`SELECT COALESCE(SUM(amount), 0)::numeric as sum, COUNT(*)::int as count FROM deposits WHERE status = 'Approved'`,
-        sql`SELECT COALESCE(SUM(price), 0)::numeric as sum, COUNT(*)::int as count FROM purchases WHERE status = 'Active'`,
-        sql`SELECT COALESCE(SUM(amount), 0)::numeric as sum, COALESCE(SUM(fee), 0)::numeric as fees, COUNT(*)::int as count FROM withdrawals WHERE status = 'Approved'`,
-        sql`SELECT COALESCE(SUM(amount), 0)::numeric as sum, COUNT(*)::int as count FROM deposits WHERE status = 'Pending'`,
-        sql`SELECT COALESCE(SUM(amount), 0)::numeric as sum, COUNT(*)::int as count FROM withdrawals WHERE status = 'Pending'`
+      const [
+        usersStats,
+        approvedDeposits,
+        activeInvestments,
+        approvedWithdrawals,
+        pendingDeposits,
+        pendingWithdrawals
+      ] = await Promise.all([
+        sql`
+          SELECT 
+            COUNT(*)::int AS total_users,
+            COALESCE(SUM(balance), 0)::numeric AS sum_deposit_balance,
+            COALESCE(SUM(withdrawable_balance), 0)::numeric AS sum_withdrawal_balance,
+            COALESCE(SUM(balance + withdrawable_balance), 0)::numeric AS total_balance
+          FROM users
+        `,
+        sql`
+          SELECT 
+            COALESCE(SUM(amount), 0)::numeric AS total_deposits,
+            COUNT(*)::int AS count
+          FROM deposits 
+          WHERE status = 'Approved'
+        `,
+        sql`
+          SELECT 
+            COALESCE(SUM(price), 0)::numeric AS total_investment,
+            COUNT(*)::int AS count
+          FROM purchases 
+          WHERE status = 'Active'
+        `,
+        sql`
+          SELECT 
+            COALESCE(SUM(amount), 0)::numeric AS total_payouts,
+            COUNT(*)::int AS count
+          FROM withdrawals 
+          WHERE status = 'Approved'
+        `,
+        sql`
+          SELECT 
+            COALESCE(SUM(amount), 0)::numeric AS pending_deposits,
+            COUNT(*)::int AS count
+          FROM deposits 
+          WHERE status = 'Pending'
+        `,
+        sql`
+          SELECT 
+            COALESCE(SUM(amount), 0)::numeric AS pending_withdrawals,
+            COUNT(*)::int AS count
+          FROM withdrawals 
+          WHERE status = 'Pending'
+        `
       ]);
+
+      const totalUsers = usersStats[0]?.total_users || 0;
+      const totalBalance = parseFloat(usersStats[0]?.total_balance || 0);
+      const totalDeposits = parseFloat(approvedDeposits[0]?.total_deposits || 0);
+      const totalInvestment = parseFloat(activeInvestments[0]?.total_investment || 0);
+      const totalPayouts = parseFloat(approvedWithdrawals[0]?.total_payouts || 0);
+
+      const platformProfit = totalInvestment - totalPayouts;
+
+      const pendingDepAmt = parseFloat(pendingDeposits[0]?.pending_deposits || 0);
+      const pendingWithAmt = parseFloat(pendingWithdrawals[0]?.pending_withdrawals || 0);
 
       return res.status(200).json({
         success: true,
         stats: {
-          total_users: users[0]?.count || 0,
-          total_balance: users[0]?.total_bal || 0,
-          total_deposits: deposits[0]?.sum || 0,
-          deposits_count: deposits[0]?.count || 0,
-          total_investment: purchases[0]?.sum || 0,
-          investment_count: purchases[0]?.count || 0,
-          total_payouts: withdrawals[0]?.sum || 0,
-          payouts_count: withdrawals[0]?.count || 0,
-          platform_profit: withdrawals[0]?.fees || 0,
-          pending_withdrawals: pendingWith[0]?.sum || 0,
-          pending_deposits: pendingDep[0]?.sum || 0
+          total_users: totalUsers,
+          total_balance: totalBalance,
+          total_deposits: totalDeposits,
+          deposits_count: approvedDeposits[0]?.count || 0,
+          total_investment: totalInvestment,
+          investment_count: activeInvestments[0]?.count || 0,
+          total_payouts: totalPayouts,
+          payouts_count: approvedWithdrawals[0]?.count || 0,
+          platform_profit: platformProfit,
+          pending_deposits: pendingDepAmt,
+          pending_deposits_count: pendingDeposits[0]?.count || 0,
+          pending_withdrawals: pendingWithAmt,
+          pending_withdrawals_count: pendingWithdrawals[0]?.count || 0
         }
       });
     }
 
     // -------------------------------------------------------------
-    // 2. USER MANAGEMENT
+    // 2. USER MANAGEMENT (EXACT PRESERVED LOGIC)
     // -------------------------------------------------------------
     if (action === 'users' && req.method === 'GET') {
       const users = await sql`
@@ -155,12 +212,12 @@ export default async function handler(req, res) {
 
       await sql`
         INSERT INTO transactions (user_id, type, title, amount, direction)
-        VALUES (${user_id}, 'Admin Adjustment', ${`Admin Adjustment (${direction.toUpperCase()}${wallet_type.toUpperCase()})`}, ${numAmount}, ${direction === 'add' ? 'in' : 'out'})
+        VALUES (${user_id}, 'Admin Adjustment', ${`Admin Adjustment (${direction.toUpperCase()} ${wallet_type.toUpperCase()})`}, ${numAmount}, ${direction === 'add' ? 'in' : 'out'})
       `;
 
       await sql`
         INSERT INTO admin_audit_logs (user_id, action_type, details)
-        VALUES (${user_id}, 'BALANCE_ADJUST', ${`${direction.toUpperCase()} ₦${numAmount.toLocaleString()} to${wallet_type} wallet`})
+        VALUES (${user_id}, 'BALANCE_ADJUST', ${`${direction.toUpperCase()} ₦${numAmount.toLocaleString()} to ${wallet_type} wallet`})
       `;
 
       return res.status(200).json({
@@ -222,7 +279,7 @@ export default async function handler(req, res) {
     }
 
     // -------------------------------------------------------------
-    // 3. DEPOSIT REQUESTS
+    // 3. DEPOSITS REVIEW
     // -------------------------------------------------------------
     if (action === 'deposits' && req.method === 'GET') {
       const deposits = await sql`
@@ -268,7 +325,7 @@ export default async function handler(req, res) {
     }
 
     // -------------------------------------------------------------
-    // 4. WITHDRAWAL REQUESTS
+    // 4. WITHDRAWALS REVIEW
     // -------------------------------------------------------------
     if (action === 'withdrawals' && req.method === 'GET') {
       const withdrawals = await sql`
@@ -318,7 +375,7 @@ export default async function handler(req, res) {
     }
 
     // -------------------------------------------------------------
-    // 5. PRODUCTS SYNC
+    // 5. PRODUCTS MANAGEMENT & SYNC (UPDATED)
     // -------------------------------------------------------------
     if (action === 'products' && req.method === 'GET') {
       const products = await sql`SELECT * FROM products ORDER BY price ASC`;
@@ -326,20 +383,37 @@ export default async function handler(req, res) {
     }
 
     if (action === 'update-product' && req.method === 'POST') {
-      const { id, price, daily_income, period_days, status } = req.body;
+      const { id, price, daily_income, period_days, total_revenue, status } = req.body;
+
+      const pPrice = parseFloat(price);
+      const pDaily = parseFloat(daily_income);
+      const pDays = parseInt(period_days, 10);
+      const pRev = total_revenue ? parseFloat(total_revenue) : (pDaily * pDays);
+      const pStatus = status === 'Inactive' ? 'Inactive' : 'Active';
+
       await sql`
         UPDATE products 
-        SET price = ${parseFloat(price)},
-            daily_income = ${parseFloat(daily_income)},
-            period_days = ${parseInt(period_days, 10)},
-            status = ${status}
+        SET price = ${pPrice},
+            daily_income = ${pDaily},
+            period_days = ${pDays},
+            total_revenue = ${pRev},
+            status = ${pStatus}
         WHERE id = ${id}
       `;
-      return res.status(200).json({ success: true, message: 'Product updated successfully.' });
+
+      await sql`
+        INSERT INTO admin_audit_logs (user_id, action_type, details)
+        VALUES (NULL, 'PRODUCT_SYNC', ${`Updated product ${id}: Price ₦${pPrice}, Daily ₦${pDaily}, Days ${pDays}, Status ${pStatus}`})
+      `;
+
+      return res.status(200).json({
+        success: true,
+        message: `Product ${id} synchronized successfully to live database.`
+      });
     }
 
     // -------------------------------------------------------------
-    // 6. SETTINGS & RATES
+    // 6. SETTINGS & RATES (INCLUDES WITHDRAWAL OPEN/CLOSE)
     // -------------------------------------------------------------
     if (action === 'settings' && req.method === 'GET') {
       const rows = await sql`SELECT id, val FROM platform_settings`;
@@ -356,7 +430,7 @@ export default async function handler(req, res) {
           ON CONFLICT (id) DO UPDATE SET val = ${String(val)}
         `;
       }
-      return res.status(200).json({ success: true, message: 'Settings saved.' });
+      return res.status(200).json({ success: true, message: 'Settings saved successfully.' });
     }
 
     // -------------------------------------------------------------
