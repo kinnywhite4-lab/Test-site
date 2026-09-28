@@ -1,59 +1,406 @@
-const pages=[...document.querySelectorAll('.page')];
-const navItems=[...document.querySelectorAll('.nav-item')];
-const toast=document.getElementById('toast');
-const appShell=document.querySelector('.app-shell');
-const authView=document.getElementById('authView');
-let previousPage='home';
-let authenticated=false;
-let state={account:{},products:[],purchases:[],transactions:[],bank:null,referrals:[],referralCode:''};
+// NovaVest Client Controller
 
-function money(value){return '₦'+Number(value||0).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}
-function moneyPlain(value){return Number(value||0).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}
-function showToast(message){toast.textContent=message;toast.classList.add('show');clearTimeout(showToast.timer);showToast.timer=setTimeout(()=>toast.classList.remove('show'),2800)}
-function headers(){return {'Content-Type':'application/json'}}
-async function api(path,options={}){const res=await fetch(path,{...options,credentials:'same-origin',headers:{...headers(),...(options.headers||{})}});let data={};try{data=await res.json()}catch{}if(!res.ok)throw new Error(data.error||'Request failed');return data}
-function showAuth(){authenticated=false;authView.classList.remove('is-hidden');appShell.classList.add('is-hidden')}
-function showApp(){authenticated=true;authView.classList.add('is-hidden');appShell.classList.remove('is-hidden')}
-function switchAuth(mode){document.getElementById('loginPanel').classList.toggle('hidden',mode!=='login');document.getElementById('registerPanel').classList.toggle('hidden',mode!=='register');}
-function renderIdentity(){const a=state.account||{};const name=a.display_name||'Nova User';const email=a.email||'';const nameEl=document.getElementById('profileName');const emailEl=document.getElementById('profileEmail');const avatar=document.getElementById('profileAvatar');if(nameEl)nameEl.textContent=name;if(emailEl)emailEl.textContent=email;if(avatar)avatar.textContent=name.trim().charAt(0).toUpperCase()||'N';const subtitle=document.getElementById('topbarSubtitle');if(subtitle)subtitle.textContent=`Welcome, ${name.split(' ')[0]}`;}
-function formatDate(ts){return new Date(ts).toLocaleString('en-GB',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})}
-function showPage(name){const target=document.querySelector(`[data-page="${name}"]`);if(!target)return;const current=document.querySelector('.page.active');if(current)previousPage=current.dataset.page;pages.forEach(p=>p.classList.toggle('active',p===target));navItems.forEach(n=>n.classList.toggle('active',n.dataset.nav===name));window.scrollTo({top:0,behavior:'smooth'});document.getElementById('topbarSubtitle').textContent=['home','products','team','profile'].includes(name)?'Welcome back':'Account';if(name==='myProducts')renderMyProducts();if(['transactions','depositHistory','withdrawalHistory'].includes(name))renderHistories()}
-function updateBalances(){const a=state.account||{};const total=Number(a.deposit_balance||0)+Number(a.withdrawal_balance||0);const values={homeTotalBalance:money(total),homeDailyReturn:money(a.daily_return),homeCommission:money(a.commission_return),profileDepositBalance:money(a.deposit_balance),profileWithdrawalBalance:money(a.withdrawal_balance),profileTotalIncome:money(a.total_income),profileTotalWithdrawn:money(a.total_withdrawn),depositPageBalance:money(a.deposit_balance),withdrawAvailableBalance:money(a.withdrawal_balance)};Object.entries(values).forEach(([id,v])=>{const el=document.getElementById(id);if(el)el.textContent=v});}
-function iconFor(type){return {deposit:'＋',withdraw:'↗',income:'↗',commission:'♟',purchase:'▣'}[type]||'↔'}
-function titleFor(type){return {deposit:'Deposit',withdraw:'Withdraw',income:'Income',commission:'Commission',purchase:'VIP Product Purchase'}[type]||'Transaction'}
-function renderProducts(){const list=document.getElementById('productList');if(!list)return;list.innerHTML=state.products.map((p,i)=>`<article class="product-card product-reference-card"><div class="product-image-wrap"><span class="hot-badge">Demo</span><div class="product-image-placeholder"><span>${String(i+1).padStart(2,'0')}</span></div></div><div class="product-content"><div class="product-title-row"><h2>${p.name}</h2><strong>${money(p.price)} <small>NGN</small></strong></div><div class="product-metrics"><div><span>Revenue Cycle</span><b>${p.cycle_days} days</b></div><div><span>Daily income</span><b>${moneyPlain(p.daily_income)}</b></div><div><span>Total revenue</span><b>${moneyPlain(p.total_revenue)}</b></div><div><span>Hourly income</span><b>${moneyPlain(p.hourly_income)}</b></div></div><button class="full-btn buy-product" data-product-id="${p.id}">Buy it now</button></div></article>`).join('')}
-function renderMyProducts(){const list=document.getElementById('myProductsList');if(!list)return;if(!state.purchases.length){list.innerHTML='<div class="empty-card"><div class="empty-icon">▣</div><p>No VIP products yet</p><small>Products you buy from the VIP Products page will appear here.</small></div>';return}list.innerHTML=state.purchases.map(p=>`<article class="owned-product-card"><div class="owned-product-top"><div><span class="status-pill">${p.status}</span><h2>${p.product_name}</h2><small>Purchased ${formatDate(p.purchased_at)}</small></div><strong>${money(p.price)}</strong></div><div class="owned-product-metrics"><div><span>Cycle</span><b>${p.cycle_days} days</b></div><div><span>Daily income</span><b>${moneyPlain(p.daily_income)}</b></div><div><span>Total revenue</span><b>${moneyPlain(p.total_revenue)}</b></div></div></article>`).join('')}
-function historyRow(t){return `<article class="history-row"><div class="history-icon">${iconFor(t.type)}</div><div class="history-main"><strong>${t.detail||titleFor(t.type)}</strong><small>${formatDate(t.created_at)}</small><span>${t.reference||''}</span></div><div class="history-amount"><b>${money(t.amount)}</b><small>${t.status||'Completed'}</small></div></article>`}
-function renderHistories(filter='all'){const all=state.transactions||[];const filtered=filter==='all'?all:all.filter(t=>t.type===filter);const make=(id,arr,empty)=>{const el=document.getElementById(id);if(!el)return;el.innerHTML=arr.length?`<div class="history-list">${arr.map(historyRow).join('')}</div>`:`<div class="empty-card"><div class="empty-icon">↔</div><p>${empty}</p><small>No records have been created yet.</small></div>`};make('transactionHistoryList',filtered,'No transaction history');make('depositHistoryList',all.filter(t=>t.type==='deposit'),'No deposits yet');make('withdrawalHistoryList',all.filter(t=>t.type==='withdraw'),'No withdrawals yet')}
-function renderBank(){const b=state.bank;const name=document.getElementById('savedBankName'),acc=document.getElementById('savedBankAccount');if(!name||!acc)return;if(!b){name.textContent='No bank saved';acc.textContent='Add a bank account in Profile → Bank';return}name.textContent=`${b.bank_name} • ${b.account_name}`;acc.textContent=`****${String(b.account_number||'').slice(-4)}`;document.getElementById('bankName').value=b.bank_name||'';document.getElementById('accountName').value=b.account_name||'';document.getElementById('accountNumber').value=b.account_number||''}
-function renderTeam(){const l1=(state.referrals||[]).filter(r=>Number(r.level)===1),l2=(state.referrals||[]).filter(r=>Number(r.level)===2);document.getElementById('referralLink').textContent=`${location.origin}/?ref=${state.referralCode}`;const lists=[['level1List',l1,'No Level 1 members','1'],['level2List',l2,'No Level 2 members','2']];lists.forEach(([id,rows,empty,num])=>{const el=document.getElementById(id);el.innerHTML=rows.length?rows.map(r=>`<div class="team-member"><div class="avatar">${num}</div><div><strong>${r.display_name||'Member'}</strong><small>${r.email||''}</small></div><b>${money(r.commission_earned)}</b></div>`).join(''):`<div class="empty-card compact"><div class="empty-icon">${num}</div><p>${empty}</p><small>Referral members will appear here when connected.</small></div>`})}
-async function loadBackend(){try{const data=await api('/api/bootstrap');state.account=data.account||{};state.products=data.products||[];state.purchases=data.purchases||[];state.transactions=data.transactions||[];state.bank=data.bank||null;state.referrals=data.referrals||[];state.referralCode=data.account?.referral_code||'';renderProducts();renderMyProducts();renderHistories();renderBank();renderTeam();updateBalances();renderIdentity();showApp();}catch(e){if(/log in|authenticated|session expired/i.test(e.message)){showAuth();return}console.error(e);showToast(e.message||'Backend connection failed.')}}
+const VIP_PRODUCTS_LIST = [
+  { id: 'vip-1', name: 'VIP 1 Equipment', price: 3000, daily: 450, days: 30 },
+  { id: 'vip-2', name: 'VIP 2 Equipment', price: 7000, daily: 1100, days: 30 },
+  { id: 'vip-3', name: 'VIP 3 Equipment', price: 15000, daily: 2500, days: 30 },
+  { id: 'vip-4', name: 'VIP 4 Equipment', price: 35000, daily: 6300, days: 30 },
+  { id: 'vip-5', name: 'VIP 5 Equipment', price: 80000, daily: 15200, days: 30 },
+  { id: 'vip-6', name: 'VIP 6 Equipment', price: 180000, daily: 36000, days: 30 }
+];
 
-document.querySelectorAll('[data-auth-switch]').forEach(btn=>btn.addEventListener('click',()=>switchAuth(btn.dataset.authSwitch)));
-document.querySelectorAll('[data-toggle-password]').forEach(btn=>btn.addEventListener('click',()=>{const input=document.getElementById(btn.dataset.togglePassword);if(!input)return;input.type=input.type==='password'?'text':'password';btn.textContent=input.type==='password'?'Show':'Hide'}));
+let currentUser = null;
+let currentBank = null;
+let userPurchases = [];
+let userDeposits = [];
+let userWithdrawals = [];
+let userTransactions = [];
 
-const refParam=new URLSearchParams(location.search).get('ref');
-if(refParam){const refInput=document.getElementById('registerReferral');if(refInput)refInput.value=refParam.toUpperCase();}
+function showToast(msg) {
+  const toast = document.getElementById('toast');
+  toast.innerText = msg;
+  toast.className = 'toast show';
+  setTimeout(() => {
+    toast.className = toast.className.replace('show', '');
+  }, 3000);
+}
 
-document.getElementById('loginForm')?.addEventListener('submit',async e=>{e.preventDefault();const email=document.getElementById('loginEmail').value.trim();const password=document.getElementById('loginPassword').value;try{await api('/api/auth?action=login',{method:'POST',body:JSON.stringify({email,password})});showToast('Login successful.');await loadBackend();showPage('home');}catch(err){showToast(err.message)}});
-document.getElementById('registerForm')?.addEventListener('submit',async e=>{e.preventDefault();const payload={name:document.getElementById('registerName').value.trim(),email:document.getElementById('registerEmail').value.trim(),password:document.getElementById('registerPassword').value,confirmPassword:document.getElementById('registerConfirm').value,referralCode:document.getElementById('registerReferral').value.trim()};try{await api('/api/auth?action=register',{method:'POST',body:JSON.stringify(payload)});showToast('Account created successfully.');await loadBackend();showPage('home');}catch(err){showToast(err.message)}});
-document.getElementById('logoutBtn')?.addEventListener('click',async()=>{try{await api('/api/auth?action=logout',{method:'POST'});}catch{}state={account:{},products:[],purchases:[],transactions:[],bank:null,referrals:[],referralCode:''};showAuth();switchAuth('login');showToast('You have been logged out.');});
+function formatCurrency(amount) {
+  return '₦' + parseFloat(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 
-navItems.forEach(item=>item.addEventListener('click',()=>showPage(item.dataset.nav)));
-document.addEventListener('click',async e=>{
-  const open=e.target.closest('[data-open]');if(open){showPage(open.dataset.open);return}
-  const navTarget=e.target.closest('[data-nav-target]');if(navTarget){showPage(navTarget.dataset.navTarget);return}
-  const back=e.target.closest('[data-back]');if(back){const currentPage=document.querySelector('.page.active')?.dataset.page;if(currentPage==='giftCode'){showPage('home');return}if(currentPage==='myProducts'){showPage('products');return}if(['deposit','withdraw','bank','transactions','depositHistory','withdrawalHistory'].includes(currentPage)){showPage('profile');return}showPage('home');return}
-  const toastBtn=e.target.closest('[data-toast]');if(toastBtn){showToast(toastBtn.dataset.toast);return}
-  const amount=e.target.closest('.amount');if(amount){document.querySelectorAll('.amount').forEach(a=>a.classList.remove('active'));amount.classList.add('active');document.getElementById('depositAmount').value=amount.textContent.replace(/,/g,'');return}
-  const filter=e.target.closest('.filter');if(filter){document.querySelectorAll('.filter').forEach(f=>f.classList.remove('active'));filter.classList.add('active');renderHistories(filter.dataset.historyFilter||'all');return}
-  const copy=e.target.closest('[data-action="copy"]');if(copy){navigator.clipboard?.writeText(document.getElementById('referralLink').textContent);showToast('Referral link copied.');return}
-  const buy=e.target.closest('.buy-product');if(buy){try{const data=await api('/api/purchase',{method:'POST',body:JSON.stringify({productId:buy.dataset.productId})});showToast('VIP product purchase recorded.');await loadBackend();showPage('myProducts')}catch(err){showToast(err.message)}return}
+// Navigation
+function switchView(viewName) {
+  document.querySelectorAll('.view-section').forEach(sec => sec.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
+
+  const targetSec = document.getElementById(`view-${viewName}`);
+  const targetBtn = document.querySelector(`.nav-item[data-view="${viewName}"]`);
+
+  if (targetSec) targetSec.classList.add('active');
+  if (targetBtn) targetBtn.classList.add('active');
+}
+
+// Modals
+function openModal(modalId) {
+  const modal = document.getElementById(modalId);
+  if (modal) modal.classList.add('open');
+}
+
+function closeModal() {
+  document.querySelectorAll('.modal').forEach(m => m.classList.remove('open'));
+}
+
+document.querySelectorAll('.modal-close').forEach(btn => {
+  btn.addEventListener('click', closeModal);
 });
 
-document.getElementById('saveBank')?.addEventListener('click',async()=>{const bankName=document.getElementById('bankName').value.trim(),accountName=document.getElementById('accountName').value.trim(),accountNumber=document.getElementById('accountNumber').value.trim();try{await api('/api/bank',{method:'POST',body:JSON.stringify({bankName,accountName,accountNumber})});showToast('Bank account saved to the backend.');await loadBackend();showPage('withdraw')}catch(e){showToast(e.message)}});
-document.getElementById('depositBtn')?.addEventListener('click',async()=>{const input=document.getElementById('depositAmount'),amount=Number(input.value.replace(/,/g,''));if(!amount||amount<=0){showToast('Enter a valid deposit amount.');return}try{await api('/api/deposit',{method:'POST',body:JSON.stringify({amount})});showToast('Deposit recorded in the backend.');input.value='';await loadBackend()}catch(e){showToast(e.message)}});
-document.getElementById('withdrawBtn')?.addEventListener('click',async()=>{const input=document.getElementById('withdrawAmount'),amount=Number(input.value.replace(/,/g,''));if(!amount||amount<=0){showToast('Enter a valid withdrawal amount.');return}try{await api('/api/withdraw',{method:'POST',body:JSON.stringify({amount})});showToast('Withdrawal request recorded as Pending.');input.value='';await loadBackend()}catch(e){showToast(e.message)}});
-document.getElementById('giftCodeBtn')?.addEventListener('click',async()=>{const input=document.getElementById('giftCodeInput'),code=input.value.trim();if(!code){showToast('Enter a gift code.');return}try{const data=await api('/api/gift-code',{method:'POST',body:JSON.stringify({code})});showToast(`${money(data.amount)} added to your withdrawal balance.`);input.value='';await loadBackend();showPage('home')}catch(e){showToast(e.message)}});
+// Auth form toggles
+document.getElementById('link-show-register').addEventListener('click', (e) => {
+  e.preventDefault();
+  document.getElementById('login-form').style.display = 'none';
+  document.getElementById('register-form').style.display = 'block';
+  document.getElementById('auth-subtitle').innerText = 'Create your account';
+});
 
-loadBackend();
+document.getElementById('link-show-login').addEventListener('click', (e) => {
+  e.preventDefault();
+  document.getElementById('register-form').style.display = 'none';
+  document.getElementById('login-form').style.display = 'block';
+  document.getElementById('auth-subtitle').innerText = 'Log in to your account';
+});
+
+// API helper
+async function fetchAPI(url, options = {}) {
+  options.headers = options.headers || {};
+  if (options.body && typeof options.body === 'object') {
+    options.headers['Content-Type'] = 'application/json';
+    options.body = JSON.stringify(options.body);
+  }
+  options.credentials = 'same-origin';
+
+  try {
+    const res = await fetch(url, options);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || 'Something went wrong. Please try again.');
+    }
+    return data;
+  } catch (err) {
+    throw err;
+  }
+}
+
+// Renderers
+function renderDashboard() {
+  if (!currentUser) return;
+
+  document.getElementById('home-balance').innerText = formatCurrency(currentUser.balance);
+  document.getElementById('home-withdrawable').innerText = formatCurrency(currentUser.withdrawable_balance);
+  document.getElementById('home-income').innerText = formatCurrency(currentUser.total_income);
+
+  document.getElementById('profile-phone').innerText = currentUser.phone_number;
+  document.getElementById('prof-income').innerText = formatCurrency(currentUser.total_income);
+  document.getElementById('prof-withdrawn').innerText = formatCurrency(currentUser.total_withdrawn);
+
+  document.getElementById('team-ref-code').innerText = currentUser.referral_code || '------';
+
+  renderHomeProducts();
+  renderMyProducts();
+}
+
+function renderHomeProducts() {
+  const container = document.getElementById('home-product-list');
+  container.innerHTML = VIP_PRODUCTS_LIST.map(prod => `
+    <div class="product-card">
+      <div class="product-info">
+        <h4>${prod.name}</h4>
+        <div class="product-spec">Daily Income: <strong>${formatCurrency(prod.daily)}</strong></div>
+        <div class="product-spec">Cycle: <strong>${prod.days} Days</strong></div>
+        <div class="product-price">Price: ${formatCurrency(prod.price)}</div>
+      </div>
+      <button class="btn btn-primary btn-sm btn-buy" data-id="${prod.id}">Buy Now</button>
+    </div>
+  `).join('');
+
+  container.querySelectorAll('.btn-buy').forEach(btn => {
+    btn.addEventListener('click', () => buyProduct(btn.dataset.id));
+  });
+}
+
+function renderMyProducts() {
+  const container = document.getElementById('my-product-list');
+  if (!userPurchases.length) {
+    container.innerHTML = `<div class="empty-state">No equipment currently active.</div>`;
+    return;
+  }
+
+  container.innerHTML = userPurchases.map(p => `
+    <div class="product-card">
+      <div class="product-info">
+        <h4>${p.product_name}</h4>
+        <div class="product-spec">Cost: <strong>${formatCurrency(p.price)}</strong></div>
+        <div class="product-spec">Daily Return: <strong>${formatCurrency(p.daily_income)}</strong></div>
+        <div class="product-spec">Status: <span class="badge-active">${p.status}</span></div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderTeam(teamData) {
+  document.getElementById('team-count').innerText = teamData.team_count || 0;
+  const list = document.getElementById('team-members-list');
+  if (!teamData.members || !teamData.members.length) {
+    list.innerHTML = `<div class="empty-state">No team members invited yet.</div>`;
+    return;
+  }
+
+  list.innerHTML = teamData.members.map(m => `
+    <div class="history-item">
+      <div>
+        <div class="item-title">${m.phone_number}</div>
+        <div class="item-date">${new Date(m.created_at).toLocaleDateString()}</div>
+      </div>
+      <div class="item-amount in">+${formatCurrency(m.total_income)}</div>
+    </div>
+  `).join('');
+}
+
+// History modal renderer
+function showHistoryModal(title, items, type) {
+  document.getElementById('history-modal-title').innerText = title;
+  const container = document.getElementById('history-items');
+
+  if (!items || !items.length) {
+    container.innerHTML = `<div class="empty-state">No records found.</div>`;
+  } else {
+    container.innerHTML = items.map(it => {
+      let amountClass = 'in';
+      let sign = '+';
+      let titleText = it.title || it.payment_method || it.bank_name || 'Transaction';
+
+      if (type === 'withdraw' || it.direction === 'out') {
+        amountClass = 'out';
+        sign = '-';
+      }
+
+      return `
+        <div class="history-item">
+          <div>
+            <div class="item-title">${titleText}</div>
+            <div class="item-date">${new Date(it.created_at).toLocaleString()}</div>
+          </div>
+          <div class="item-amount ${amountClass}">${sign}${formatCurrency(it.amount)}</div>
+        </div>
+      `;
+    }).join('');
+  }
+  openModal('modal-history');
+}
+
+// User Actions
+async function buyProduct(productId) {
+  try {
+    const res = await fetchAPI('/api/purchase', {
+      method: 'POST',
+      body: { productId }
+    });
+    showToast(res.message);
+    await loadInitialData();
+  } catch (err) {
+    showToast(err.message);
+  }
+}
+
+// Load Application Data
+async function loadInitialData() {
+  try {
+    const data = await fetchAPI('/api/bootstrap');
+    currentUser = data.user;
+    currentBank = data.bank;
+    userPurchases = data.purchases || [];
+    userDeposits = data.deposits || [];
+    userWithdrawals = data.withdrawals || [];
+    userTransactions = data.transactions || [];
+
+    if (currentBank) {
+      document.getElementById('bank-name').value = currentBank.bank_name || '';
+      document.getElementById('bank-acc-number').value = currentBank.account_number || '';
+      document.getElementById('bank-acc-name').value = currentBank.account_name || '';
+    }
+
+    renderDashboard();
+
+    document.getElementById('auth-container').style.display = 'none';
+    document.getElementById('app-container').style.display = 'block';
+
+    loadTeam();
+  } catch (err) {
+    document.getElementById('auth-container').style.display = 'flex';
+    document.getElementById('app-container').style.display = 'none';
+  }
+}
+
+async function loadTeam() {
+  try {
+    const data = await fetchAPI('/api/team');
+    renderTeam(data);
+  } catch {}
+}
+
+// Form Handlers
+document.getElementById('register-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const phone = document.getElementById('reg-phone').value;
+  const password = document.getElementById('reg-password').value;
+  const confirm = document.getElementById('reg-confirm-password').value;
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const ref = urlParams.get('ref') || '';
+
+  try {
+    await fetchAPI('/api/auth?action=register', {
+      method: 'POST',
+      body: { phone_number: phone, password, confirm_password: confirm, ref }
+    });
+    showToast('Registration successful!');
+    await loadInitialData();
+  } catch (err) {
+    showToast(err.message);
+  }
+});
+
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const phone = document.getElementById('login-phone').value;
+  const password = document.getElementById('login-password').value;
+
+  try {
+    await fetchAPI('/api/auth?action=login', {
+      method: 'POST',
+      body: { phone_number: phone, password }
+    });
+    showToast('Login successful!');
+    await loadInitialData();
+  } catch (err) {
+    showToast(err.message);
+  }
+});
+
+document.getElementById('btn-logout').addEventListener('click', async () => {
+  try {
+    await fetchAPI('/api/auth?action=logout');
+    window.location.reload();
+  } catch {
+    window.location.reload();
+  }
+});
+
+// Deposit Submit
+document.getElementById('form-deposit').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const amount = document.getElementById('deposit-amount').value;
+  try {
+    const res = await fetchAPI('/api/deposit', {
+      method: 'POST',
+      body: { amount }
+    });
+    closeModal();
+    showToast(res.message);
+    document.getElementById('deposit-amount').value = '';
+    await loadInitialData();
+  } catch (err) {
+    showToast(err.message);
+  }
+});
+
+// Withdraw Submit
+document.getElementById('form-withdraw').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const amount = document.getElementById('withdraw-amount').value;
+  try {
+    const res = await fetchAPI('/api/withdraw', {
+      method: 'POST',
+      body: { amount }
+    });
+    closeModal();
+    showToast(res.message);
+    document.getElementById('withdraw-amount').value = '';
+    await loadInitialData();
+  } catch (err) {
+    showToast(err.message);
+  }
+});
+
+// Bank Submit
+document.getElementById('form-bank').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const bank_name = document.getElementById('bank-name').value;
+  const account_number = document.getElementById('bank-acc-number').value;
+  const account_name = document.getElementById('bank-acc-name').value;
+
+  try {
+    const res = await fetchAPI('/api/bank', {
+      method: 'POST',
+      body: { bank_name, account_number, account_name }
+    });
+    closeModal();
+    showToast(res.message);
+    await loadInitialData();
+  } catch (err) {
+    showToast(err.message);
+  }
+});
+
+// Gift Submit
+document.getElementById('form-gift').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const code = document.getElementById('gift-code-input').value;
+  try {
+    const res = await fetchAPI('/api/gift-code', {
+      method: 'POST',
+      body: { code }
+    });
+    closeModal();
+    showToast(res.message);
+    document.getElementById('gift-code-input').value = '';
+    await loadInitialData();
+  } catch (err) {
+    showToast(err.message);
+  }
+});
+
+// Copy Referral Code
+document.getElementById('btn-copy-code').addEventListener('click', () => {
+  if (!currentUser || !currentUser.referral_code) return;
+  const shareLink = `${window.location.origin}?ref=${currentUser.referral_code}`;
+  navigator.clipboard.writeText(shareLink).then(() => {
+    showToast('Referral link copied to clipboard!');
+  }).catch(() => {
+    showToast(currentUser.referral_code);
+  });
+});
+
+// Quick action buttons & Menu click bindings
+document.querySelectorAll('[data-action]').forEach(elem => {
+  elem.addEventListener('click', () => {
+    const action = elem.dataset.action;
+    if (action === 'deposit') openModal('modal-deposit');
+    if (action === 'withdraw') openModal('modal-withdraw');
+    if (action === 'bank') openModal('modal-bank');
+    if (action === 'gift') openModal('modal-gift');
+    if (action === 'tx-history') showHistoryModal('Transaction History', userTransactions, 'tx');
+    if (action === 'dep-history') showHistoryModal('Deposit History', userDeposits, 'deposit');
+    if (action === 'with-history') showHistoryModal('Withdrawal History', userWithdrawals, 'withdraw');
+  });
+});
+
+// Bottom navigation buttons
+document.querySelectorAll('.nav-item').forEach(btn => {
+  btn.addEventListener('click', () => {
+    switchView(btn.dataset.view);
+  });
+});
+
+// Initial boot
+loadInitialData();
