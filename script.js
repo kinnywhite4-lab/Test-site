@@ -227,12 +227,11 @@ async function buyProduct(productId, btn) {
 }
 
 // -------------------------------------------------------------
-// 3. SEPARATE INVITE PAGE LOGIC (No infinite loop)
+// 3. SEPARATE INVITE PAGE LOGIC
 // -------------------------------------------------------------
 async function openInvitePage() {
   switchView('invite');
 
-  // Immediately use loaded user data as fallback
   if (currentUser && currentUser.referral_code) {
     const linkInput = document.getElementById('invite-link-val');
     const codeInput = document.getElementById('invite-code-val');
@@ -860,12 +859,45 @@ document.getElementById('login-form')?.addEventListener('submit', async (e) => {
   }
 });
 
-document.getElementById('btn-logout')?.addEventListener('click', async () => {
-  localStorage.removeItem('nv_token');
-  localStorage.removeItem('nv_impersonating');
-  try { await fetchAPI('/api/auth?action=logout'); } catch {}
-  window.location.reload();
-});
+// -------------------------------------------------------------
+// 12. LOGOUT: BULLETPROOF SESSION EVICTION
+// -------------------------------------------------------------
+const logoutBtn = document.getElementById('btn-logout');
+if (logoutBtn) {
+  logoutBtn.addEventListener('click', async () => {
+    // 1. Remove all client storage tokens
+    localStorage.removeItem('nv_token');
+    localStorage.removeItem('nv_impersonating');
+    sessionStorage.clear();
+
+    // 2. Kill cookie directly on client
+    document.cookie = 'novavest_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0;';
+
+    // 3. Inform backend to delete the HttpOnly session cookie
+    try {
+      await fetchAPI('/api/auth?action=logout');
+    } catch {}
+
+    // 4. Reset in-memory session
+    currentUser = null;
+    currentBank = null;
+
+    // 5. Hide app and show Auth screen cleanly
+    document.getElementById('app-container').style.display = 'none';
+    document.getElementById('auth-container').style.display = 'flex';
+    document.getElementById('login-form').style.display = 'block';
+    document.getElementById('register-form').style.display = 'none';
+    document.getElementById('auth-subtitle').innerText = 'Log in to your account';
+
+    // Clear form inputs
+    const loginPhone = document.getElementById('login-phone');
+    const loginPwd = document.getElementById('login-password');
+    if (loginPhone) loginPhone.value = '';
+    if (loginPwd) loginPwd.value = '';
+
+    showToast('Logged out successfully.');
+  });
+}
 
 initCarousel();
 loadInitialData();
