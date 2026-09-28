@@ -1,2 +1,20 @@
-import { ensureSchema, ensureUser, json, method, sql } from './_db.js';
-export default async function handler(req,res){if(!method(req,res,['GET']))return;try{await ensureSchema();const userId=await ensureUser(req);const rows=await sql`SELECT id,type,amount,status,reference,detail,created_at FROM transactions WHERE user_id=${userId} ORDER BY created_at DESC LIMIT 200`;return json(res,200,{ok:true,transactions:rows});}catch(e){console.error(e);return json(res,500,{ok:false,error:'History could not be loaded.'});}}
+const { pool, getAuthenticatedUser } = require('./_db');
+
+module.exports = async function handler(req, res) {
+  res.setHeader('Content-Type', 'application/json');
+  const user = await getAuthenticatedUser(req);
+  if (!user) {
+    return res.status(401).json({ error: 'Please log in to continue.' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, type, title, amount, direction, created_at 
+       FROM transactions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100`,
+      [user.id]
+    );
+    return res.status(200).json({ success: true, transactions: rows });
+  } catch {
+    return res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
+};
