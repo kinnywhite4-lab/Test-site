@@ -156,12 +156,11 @@ async function buyProduct(productId) {
 }
 
 // -------------------------------------------------------------
-// USER-FACING DEPOSIT FLOW (TWO-STEP CHANNEL SELECTION)
+// USER-FACING DEPOSIT FLOW (TWO-STEP)
 // -------------------------------------------------------------
 async function openRechargePage() {
   switchView('recharge');
   
-  // Reset stages: show selection stage, hide payment details stage
   document.getElementById('recharge-stage-select').style.display = 'block';
   document.getElementById('recharge-stage-pay').style.display = 'none';
   currentReceiptBase64 = null;
@@ -209,7 +208,6 @@ function renderChannels() {
   });
 }
 
-// STEP 1 -> STEP 2: Proceed to payment details
 const btnProceed = document.getElementById('btn-proceed-to-payment');
 if (btnProceed) {
   btnProceed.addEventListener('click', () => {
@@ -223,7 +221,6 @@ if (btnProceed) {
       return showToast('Please select a payment channel.');
     }
 
-    // Populate stage 2 details
     document.getElementById('det-channel-title').innerText = selectedChannel.name;
     document.getElementById('det-pay-amount').innerText = formatCurrency(numAmount);
     document.getElementById('det-bank-name').innerText = selectedChannel.bank_name;
@@ -231,13 +228,11 @@ if (btnProceed) {
     document.getElementById('det-acc-number').innerText = selectedChannel.account_number;
     document.getElementById('det-instructions').innerText = selectedChannel.instructions || 'Transfer the exact amount and upload your payment slip.';
 
-    // Transition view
     document.getElementById('recharge-stage-select').style.display = 'none';
     document.getElementById('recharge-stage-pay').style.display = 'block';
   });
 }
 
-// Allow user to return and change channel
 const btnChangeChan = document.getElementById('btn-change-channel');
 if (btnChangeChan) {
   btnChangeChan.addEventListener('click', () => {
@@ -246,7 +241,6 @@ if (btnChangeChan) {
   });
 }
 
-// Copy Bank Account
 const copyAccBtn = document.getElementById('btn-copy-account');
 if (copyAccBtn) {
   copyAccBtn.addEventListener('click', () => {
@@ -257,7 +251,6 @@ if (copyAccBtn) {
   });
 }
 
-// Predefined Amount button selector
 document.querySelectorAll('.amount-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.amount-btn').forEach(b => b.classList.remove('active'));
@@ -266,7 +259,6 @@ document.querySelectorAll('.amount-btn').forEach(btn => {
   });
 });
 
-// Compress and read image file to lightweight Base64 string
 const fileInput = document.getElementById('recharge-receipt-file');
 if (fileInput) {
   fileInput.addEventListener('change', (e) => {
@@ -292,7 +284,6 @@ if (fileInput) {
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, width, height);
 
-        // Compress to JPEG with 0.7 quality to keep payload small
         currentReceiptBase64 = canvas.toDataURL('image/jpeg', 0.7);
 
         const previewWrap = document.getElementById('receipt-preview-wrap');
@@ -308,7 +299,6 @@ if (fileInput) {
   });
 }
 
-// Confirm and Submit Deposit
 const confirmRechargeBtn = document.getElementById('btn-confirm-recharge');
 if (confirmRechargeBtn) {
   confirmRechargeBtn.addEventListener('click', async () => {
@@ -336,16 +326,12 @@ if (confirmRechargeBtn) {
         }
       });
 
-      // Successful submission
       showToast(res.message || 'Deposit request submitted successfully!');
       document.getElementById('recharge-sender-name').value = '';
       if (fileInput) fileInput.value = '';
       currentReceiptBase64 = null;
 
-      // Reset and redirect back home
       switchView('home');
-
-      // Refresh in background safely
       loadInitialData().catch(() => {});
     } catch (err) {
       showToast(err.message || 'Failed to submit deposit.');
@@ -488,9 +474,10 @@ async function loadInitialData() {
     document.getElementById('auth-container').style.display = 'none';
     document.getElementById('app-container').style.display = 'block';
 
+    // ONLY show impersonation bar if the user session was explicitly initiated via 'Login as User'
     const impersonationBar = document.getElementById('impersonation-bar');
     if (impersonationBar) {
-      if (localStorage.getItem('nv_admin_key')) {
+      if (localStorage.getItem('nv_impersonating') === 'true') {
         impersonationBar.style.display = 'flex';
       } else {
         impersonationBar.style.display = 'none';
@@ -608,9 +595,11 @@ if (copyCodeBtn) {
   });
 }
 
+// Exit impersonation session and return to admin panel
 const returnBtn = document.getElementById('btn-return-admin');
 if (returnBtn) {
   returnBtn.addEventListener('click', () => {
+    localStorage.removeItem('nv_impersonating');
     window.location.href = '/admin.html';
   });
 }
@@ -683,6 +672,7 @@ const logoutBtn = document.getElementById('btn-logout');
 if (logoutBtn) {
   logoutBtn.addEventListener('click', async () => {
     localStorage.removeItem('nv_token');
+    localStorage.removeItem('nv_impersonating');
     try { await fetchAPI('/api/auth?action=logout'); } catch {}
     window.location.reload();
   });
