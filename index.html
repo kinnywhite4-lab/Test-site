@@ -71,9 +71,15 @@
     <header class="app-header">
       <div class="header-content">
         <div class="brand">Nova<span>Vest</span></div>
-        <button class="logout-btn" id="btn-logout" title="Log Out">
-          <i class="fa-solid fa-arrow-right-from-bracket"></i>
-        </button>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <!-- Light / Dark Mode Toggle Button -->
+          <button class="theme-toggle-btn" id="btn-theme-toggle" title="Switch Theme">
+            <i class="fa-solid fa-sun" id="theme-icon"></i>
+          </button>
+          <button class="logout-btn" id="btn-logout" title="Log Out">
+            <i class="fa-solid fa-arrow-right-from-bracket"></i>
+          </button>
+        </div>
       </div>
     </header>
 
@@ -385,7 +391,7 @@
             <label>Upload Payment Receipt (Screenshot) <span style="color:var(--danger)">*</span></label>
             <input type="file" id="recharge-receipt-file" accept="image/*" style="padding: 8px;" required />
             <div id="receipt-preview-wrap" style="display:none; margin-top:10px; text-align:center;">
-              <img id="receipt-preview-img" src="" alt="Receipt Preview" style="max-width:100%; max-height:180px; border-radius:8px; border:1px solid var(--border-light);" />
+              <img id="receipt-preview-img" src="" alt="Receipt Preview" style="max-width:100%; max-height:180px; border-radius:8px; border:1px solid var(--border-glass);" />
             </div>
           </div>
 
