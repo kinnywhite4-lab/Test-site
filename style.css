@@ -226,17 +226,18 @@ body {
 }
 
 /* =============================================================
-   1. RESPONSIVE IMAGE CAROUSEL
+   1. RESPONSIVE FULL-DISPLAY IMAGE CAROUSEL
 ============================================================= */
 .company-carousel {
   position: relative;
   width: 100%;
-  border-radius: 16px;
+  border-radius: 14px;
   overflow: hidden;
   margin-bottom: 20px;
   border: 1px solid var(--border);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
   background: var(--surface-dark);
+  line-height: 0;
 }
 
 .carousel-slide {
@@ -246,7 +247,7 @@ body {
 
 .carousel-slide.active {
   display: block;
-  animation: fadeIn 0.5s ease-in-out;
+  animation: fadeIn 0.4s ease-in-out;
 }
 
 @keyframes fadeIn {
@@ -256,8 +257,9 @@ body {
 
 .carousel-img {
   width: 100%;
-  height: 170px;
-  object-fit: cover;
+  height: auto;
+  max-height: 260px;
+  object-fit: contain;
   display: block;
 }
 
