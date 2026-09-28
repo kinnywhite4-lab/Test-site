@@ -6,6 +6,7 @@ let userWithdrawals = [];
 let userTransactions = [];
 let availableChannels = [];
 let selectedChannel = null;
+let currentReceiptBase64 = null;
 
 const VIP_PRODUCTS = [
   { id: 'vip-1', name: 'VIP 1 Equipment', price: 3000, daily_income: 450, period_days: 30 },
@@ -23,7 +24,7 @@ function showToast(msg) {
   toast.className = 'toast show';
   setTimeout(() => {
     toast.className = toast.className.replace('show', '');
-  }, 3000);
+  }, 3500);
 }
 
 function formatCurrency(amount) {
@@ -64,7 +65,7 @@ async function fetchAPI(url, options = {}) {
   const res = await fetch(url, options);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const error = new Error(data.error || 'Something went wrong.');
+    const error = new Error(data.error || 'Something went wrong, please try again.');
     error.code = data.code;
     throw error;
   }
@@ -154,15 +155,25 @@ async function buyProduct(productId) {
   }
 }
 
-// Dedicated Recharge Flow
+// -------------------------------------------------------------
+// USER-FACING DEPOSIT FLOW (TWO-STEP CHANNEL SELECTION)
+// -------------------------------------------------------------
 async function openRechargePage() {
   switchView('recharge');
+  
+  // Reset stages: show selection stage, hide payment details stage
+  document.getElementById('recharge-stage-select').style.display = 'block';
+  document.getElementById('recharge-stage-pay').style.display = 'none';
+  currentReceiptBase64 = null;
+  const previewWrap = document.getElementById('receipt-preview-wrap');
+  if (previewWrap) previewWrap.style.display = 'none';
+
   try {
     const data = await fetchAPI('/api/deposit?action=channels');
     availableChannels = data.channels || [];
     renderChannels();
   } catch {
-    showToast('Failed to load channels.');
+    showToast('Failed to load payment channels.');
   }
 }
 
@@ -171,7 +182,8 @@ function renderChannels() {
   if (!container) return;
 
   if (!availableChannels.length) {
-    container.innerHTML = '<p class="field-hint">No payment channels active right now.</p>';
+    container.innerHTML = '<p class="field-hint">No payment channels active at this time.</p>';
+    selectedChannel = null;
     return;
   }
 
@@ -185,32 +197,56 @@ function renderChannels() {
     </div>
   `).join('');
 
-  selectChannel(availableChannels[0].id);
+  selectedChannel = availableChannels[0];
 
   container.querySelectorAll('.channel-option').forEach(el => {
     el.addEventListener('click', () => {
       container.querySelectorAll('.channel-option').forEach(c => c.classList.remove('active'));
       el.classList.add('active');
-      selectChannel(parseInt(el.dataset.id, 10));
+      const foundId = parseInt(el.dataset.id, 10);
+      selectedChannel = availableChannels.find(c => c.id === foundId);
     });
   });
 }
 
-function selectChannel(channelId) {
-  selectedChannel = availableChannels.find(c => c.id === channelId);
-  const card = document.getElementById('channel-details-box');
-  if (!selectedChannel) {
-    card.style.display = 'none';
-    return;
-  }
+// STEP 1 -> STEP 2: Proceed to payment details
+const btnProceed = document.getElementById('btn-proceed-to-payment');
+if (btnProceed) {
+  btnProceed.addEventListener('click', () => {
+    const amountVal = document.getElementById('recharge-amount-input').value;
+    const numAmount = parseFloat(amountVal);
 
-  card.style.display = 'block';
-  document.getElementById('det-bank-name').innerText = selectedChannel.bank_name;
-  document.getElementById('det-acc-name').innerText = selectedChannel.account_name;
-  document.getElementById('det-acc-number').innerText = selectedChannel.account_number;
-  document.getElementById('det-instructions').innerText = selectedChannel.instructions || '';
+    if (isNaN(numAmount) || numAmount < 1000) {
+      return showToast('Please enter an amount of at least ₦1,000.');
+    }
+    if (!selectedChannel) {
+      return showToast('Please select a payment channel.');
+    }
+
+    // Populate stage 2 details
+    document.getElementById('det-channel-title').innerText = selectedChannel.name;
+    document.getElementById('det-pay-amount').innerText = formatCurrency(numAmount);
+    document.getElementById('det-bank-name').innerText = selectedChannel.bank_name;
+    document.getElementById('det-acc-name').innerText = selectedChannel.account_name;
+    document.getElementById('det-acc-number').innerText = selectedChannel.account_number;
+    document.getElementById('det-instructions').innerText = selectedChannel.instructions || 'Transfer the exact amount and upload your payment slip.';
+
+    // Transition view
+    document.getElementById('recharge-stage-select').style.display = 'none';
+    document.getElementById('recharge-stage-pay').style.display = 'block';
+  });
 }
 
+// Allow user to return and change channel
+const btnChangeChan = document.getElementById('btn-change-channel');
+if (btnChangeChan) {
+  btnChangeChan.addEventListener('click', () => {
+    document.getElementById('recharge-stage-pay').style.display = 'none';
+    document.getElementById('recharge-stage-select').style.display = 'block';
+  });
+}
+
+// Copy Bank Account
 const copyAccBtn = document.getElementById('btn-copy-account');
 if (copyAccBtn) {
   copyAccBtn.addEventListener('click', () => {
@@ -221,6 +257,7 @@ if (copyAccBtn) {
   });
 }
 
+// Predefined Amount button selector
 document.querySelectorAll('.amount-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.amount-btn').forEach(b => b.classList.remove('active'));
@@ -229,15 +266,64 @@ document.querySelectorAll('.amount-btn').forEach(btn => {
   });
 });
 
+// Compress and read image file to lightweight Base64 string
+const fileInput = document.getElementById('recharge-receipt-file');
+if (fileInput) {
+  fileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(event) {
+      const img = new Image();
+      img.onload = function() {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 900;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > MAX_WIDTH) {
+          height = Math.round((height * MAX_WIDTH) / width);
+          width = MAX_WIDTH;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // Compress to JPEG with 0.7 quality to keep payload small
+        currentReceiptBase64 = canvas.toDataURL('image/jpeg', 0.7);
+
+        const previewWrap = document.getElementById('receipt-preview-wrap');
+        const previewImg = document.getElementById('receipt-preview-img');
+        if (previewWrap && previewImg) {
+          previewImg.src = currentReceiptBase64;
+          previewWrap.style.display = 'block';
+        }
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// Confirm and Submit Deposit
 const confirmRechargeBtn = document.getElementById('btn-confirm-recharge');
 if (confirmRechargeBtn) {
   confirmRechargeBtn.addEventListener('click', async () => {
     const amount = document.getElementById('recharge-amount-input').value;
-    const sender_name = document.getElementById('recharge-sender-name').value;
+    const senderName = document.getElementById('recharge-sender-name').value;
 
     if (!selectedChannel) {
       return showToast('Please select a payment channel.');
     }
+    if (!senderName || !senderName.trim()) {
+      return showToast('Please enter the depositor/sender name.');
+    }
+
+    confirmRechargeBtn.disabled = true;
+    confirmRechargeBtn.innerText = 'Submitting...';
 
     try {
       const res = await fetchAPI('/api/deposit', {
@@ -245,20 +331,34 @@ if (confirmRechargeBtn) {
         body: {
           amount,
           channel_id: selectedChannel.id,
-          sender_name
+          sender_name: senderName.trim(),
+          proof_url: currentReceiptBase64
         }
       });
 
-      showToast(res.message);
+      // Successful submission
+      showToast(res.message || 'Deposit request submitted successfully!');
       document.getElementById('recharge-sender-name').value = '';
-      await loadInitialData();
+      if (fileInput) fileInput.value = '';
+      currentReceiptBase64 = null;
+
+      // Reset and redirect back home
       switchView('home');
+
+      // Refresh in background safely
+      loadInitialData().catch(() => {});
     } catch (err) {
-      showToast(err.message);
+      showToast(err.message || 'Failed to submit deposit.');
+    } finally {
+      confirmRechargeBtn.disabled = false;
+      confirmRechargeBtn.innerText = 'Submit Deposit for Review';
     }
   });
 }
 
+// -------------------------------------------------------------
+// WITHDRAWAL FLOW
+// -------------------------------------------------------------
 function openWithdrawPage() {
   document.getElementById('withdraw-available-bal').innerText = formatCurrency(currentUser.withdrawable_balance);
   const bankBox = document.getElementById('withdraw-bank-summary');
@@ -300,6 +400,7 @@ if (submitWithdrawBtn) {
   });
 }
 
+// Dedicated Bank Form
 const bankForm = document.getElementById('form-dedicated-bank');
 if (bankForm) {
   bankForm.addEventListener('submit', async (e) => {
