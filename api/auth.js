@@ -1,12 +1,7 @@
-import pg from 'pg';
+import { neon } from '@neondatabase/serverless';
 import crypto from 'crypto';
 
-const { Pool } = pg;
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
-});
+const sql = neon(process.env.DATABASE_URL);
 
 const SESSION_SECRET = process.env.SESSION_SECRET || 'novavest_secure_session_secret_2026';
 
@@ -57,23 +52,6 @@ function parseCookies(req) {
   return list;
 }
 
-async function getAuthenticatedUser(req) {
-  try {
-    const cookies = parseCookies(req);
-    const token = cookies.novavest_session;
-    const userId = verifySessionToken(token);
-    if (!userId) return null;
-
-    const { rows } = await pool.query(
-      'SELECT id, phone_number, balance, withdrawable_balance, total_income, total_withdrawn, referral_code, referred_by FROM users WHERE id = $1',
-      [userId]
-    );
-    return rows[0] || null;
-  } catch {
-    return null;
-  }
-}
-
 function cleanPhoneNumber(phone) {
   if (!phone) return '';
   return String(phone).replace(/[^\d+]/g, '').trim();
@@ -98,28 +76,27 @@ export default async function handler(req, res) {
     }
 
     try {
-      const existing = await pool.query('SELECT id FROM users WHERE phone_number = $1', [cleanNumber]);
-      if (existing.rows.length > 0) {
+      const existing = await sql`SELECT id FROM users WHERE phone_number = ${cleanNumber}`;
+      if (existing.length > 0) {
         return res.status(400).json({ error: 'This phone number is already registered. Please log in.' });
       }
 
       let referredById = null;
       if (ref && typeof ref === 'string') {
-        const refUser = await pool.query('SELECT id FROM users WHERE referral_code = $1', [ref.trim()]);
-        if (refUser.rows.length > 0) referredById = refUser.rows[0].id;
+        const refUser = await sql`SELECT id FROM users WHERE referral_code = ${ref.trim()}`;
+        if (refUser.length > 0) referredById = refUser[0].id;
       }
 
       const refCode = 'NV' + crypto.randomBytes(3).toString('hex').toUpperCase();
       const pwdHash = hashPassword(password);
 
-      const result = await pool.query(
-        `INSERT INTO users (phone_number, password_hash, referral_code, referred_by)
-         VALUES ($1, $2, $3, $4)
-         RETURNING id, phone_number, referral_code, balance, withdrawable_balance, total_income, total_withdrawn`,
-        [cleanNumber, pwdHash, refCode, referredById]
-      );
+      const rows = await sql`
+        INSERT INTO users (phone_number, password_hash, referral_code, referred_by)
+        VALUES (${cleanNumber}, ${pwdHash}, ${refCode}, ${referredById})
+        RETURNING id, phone_number, referral_code, balance, withdrawable_balance, total_income, total_withdrawn
+      `;
 
-      const user = result.rows[0];
+      const user = rows[0];
       const token = createSessionToken(user.id);
       res.setHeader('Set-Cookie', `novavest_session=${token}; HttpOnly; Path=/; Max-Age=2592000; SameSite=Lax; Secure`);
       return res.status(200).json({ success: true, user });
@@ -138,16 +115,16 @@ export default async function handler(req, res) {
     }
 
     try {
-      const result = await pool.query(
-        'SELECT id, phone_number, password_hash, referral_code, balance, withdrawable_balance, total_income, total_withdrawn FROM users WHERE phone_number = $1',
-        [cleanNumber]
-      );
+      const rows = await sql`
+        SELECT id, phone_number, password_hash, referral_code, balance, withdrawable_balance, total_income, total_withdrawn 
+        FROM users WHERE phone_number = ${cleanNumber}
+      `;
 
-      if (result.rows.length === 0) {
+      if (rows.length === 0) {
         return res.status(400).json({ error: 'Incorrect phone number or password.' });
       }
 
-      const user = result.rows[0];
+      const user = rows[0];
       if (!verifyPassword(password, user.password_hash)) {
         return res.status(400).json({ error: 'Incorrect phone number or password.' });
       }
@@ -169,11 +146,21 @@ export default async function handler(req, res) {
 
   if (action === 'me') {
     try {
-      const user = await getAuthenticatedUser(req);
-      if (!user) {
+      const cookies = parseCookies(req);
+      const token = cookies.novavest_session;
+      const userId = verifySessionToken(token);
+      if (!userId) {
         return res.status(401).json({ error: 'Please log in to continue.' });
       }
-      return res.status(200).json({ success: true, user });
+
+      const rows = await sql`
+        SELECT id, phone_number, balance, withdrawable_balance, total_income, total_withdrawn, referral_code, referred_by 
+        FROM users WHERE id = ${userId}
+      `;
+      if (!rows.length) {
+        return res.status(401).json({ error: 'Please log in to continue.' });
+      }
+      return res.status(200).json({ success: true, user: rows[0] });
     } catch {
       return res.status(401).json({ error: 'Session expired. Please log in.' });
     }
