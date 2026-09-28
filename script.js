@@ -8,12 +8,12 @@ let availableChannels = [];
 let selectedChannel = null;
 
 const VIP_PRODUCTS = [
-  { id: 'vip-1', name: 'VIP 1 Equipment', price: 3000, daily: 450, days: 30 },
-  { id: 'vip-2', name: 'VIP 2 Equipment', price: 7000, daily: 1100, days: 30 },
-  { id: 'vip-3', name: 'VIP 3 Equipment', price: 15000, daily: 2500, days: 30 },
-  { id: 'vip-4', name: 'VIP 4 Equipment', price: 35000, daily: 6300, days: 30 },
-  { id: 'vip-5', name: 'VIP 5 Equipment', price: 80000, daily: 15200, days: 30 },
-  { id: 'vip-6', name: 'VIP 6 Equipment', price: 180000, daily: 36000, days: 30 }
+  { id: 'vip-1', name: 'VIP 1 Equipment', price: 3000, daily_income: 450, period_days: 30 },
+  { id: 'vip-2', name: 'VIP 2 Equipment', price: 7000, daily_income: 1100, period_days: 30 },
+  { id: 'vip-3', name: 'VIP 3 Equipment', price: 15000, daily_income: 2500, period_days: 30 },
+  { id: 'vip-4', name: 'VIP 4 Equipment', price: 35000, daily_income: 6300, period_days: 30 },
+  { id: 'vip-5', name: 'VIP 5 Equipment', price: 80000, daily_income: 15200, period_days: 30 },
+  { id: 'vip-6', name: 'VIP 6 Equipment', price: 180000, daily_income: 36000, period_days: 30 }
 ];
 
 function showToast(msg) {
@@ -89,15 +89,24 @@ function renderDashboard() {
   renderMyProducts();
 }
 
-function renderHomeProducts() {
+async function renderHomeProducts() {
   const container = document.getElementById('home-product-list');
   if (!container) return;
-  container.innerHTML = VIP_PRODUCTS.map(prod => `
+
+  let products = VIP_PRODUCTS;
+  try {
+    const data = await fetchAPI('/api/purchase?action=catalog');
+    if (data.products && data.products.length > 0) {
+      products = data.products;
+    }
+  } catch {}
+
+  container.innerHTML = products.map(prod => `
     <div class="product-card">
       <div class="product-info">
         <h4>${prod.name}</h4>
-        <div class="product-spec">Daily Income: <strong>${formatCurrency(prod.daily)}</strong></div>
-        <div class="product-spec">Cycle: <strong>${prod.days} Days</strong></div>
+        <div class="product-spec">Daily Income: <strong>${formatCurrency(prod.daily_income || prod.daily)}</strong></div>
+        <div class="product-spec">Cycle: <strong>${prod.period_days || prod.days} Days</strong></div>
         <div class="product-price">Price: ${formatCurrency(prod.price)}</div>
       </div>
       <button class="btn btn-primary btn-sm btn-buy" data-id="${prod.id}">Buy Now</button>
@@ -202,7 +211,6 @@ function selectChannel(channelId) {
   document.getElementById('det-instructions').innerText = selectedChannel.instructions || '';
 }
 
-// Copy Bank Account
 const copyAccBtn = document.getElementById('btn-copy-account');
 if (copyAccBtn) {
   copyAccBtn.addEventListener('click', () => {
@@ -213,7 +221,6 @@ if (copyAccBtn) {
   });
 }
 
-// Predefined Recharge Amount buttons
 document.querySelectorAll('.amount-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.amount-btn').forEach(b => b.classList.remove('active'));
@@ -222,7 +229,6 @@ document.querySelectorAll('.amount-btn').forEach(btn => {
   });
 });
 
-// Confirm Recharge Submission
 const confirmRechargeBtn = document.getElementById('btn-confirm-recharge');
 if (confirmRechargeBtn) {
   confirmRechargeBtn.addEventListener('click', async () => {
@@ -253,7 +259,6 @@ if (confirmRechargeBtn) {
   });
 }
 
-// Dedicated Withdrawal Page
 function openWithdrawPage() {
   document.getElementById('withdraw-available-bal').innerText = formatCurrency(currentUser.withdrawable_balance);
   const bankBox = document.getElementById('withdraw-bank-summary');
@@ -295,7 +300,6 @@ if (submitWithdrawBtn) {
   });
 }
 
-// Dedicated Bank Card Page Form
 const bankForm = document.getElementById('form-dedicated-bank');
 if (bankForm) {
   bankForm.addEventListener('submit', async (e) => {
@@ -318,7 +322,6 @@ if (bankForm) {
   });
 }
 
-// History Renderers
 function renderDedicatedHistory(title, items, type) {
   document.getElementById('history-page-title').innerText = title;
   const container = document.getElementById('history-page-items');
@@ -360,7 +363,6 @@ function renderDedicatedHistory(title, items, type) {
   switchView('history');
 }
 
-// Initial Boot Data
 async function loadInitialData() {
   try {
     const data = await fetchAPI('/api/bootstrap');
@@ -385,7 +387,6 @@ async function loadInitialData() {
     document.getElementById('auth-container').style.display = 'none';
     document.getElementById('app-container').style.display = 'block';
 
-    // Show Impersonation Bar if an admin key is present in localStorage
     const impersonationBar = document.getElementById('impersonation-bar');
     if (impersonationBar) {
       if (localStorage.getItem('nv_admin_key')) {
@@ -427,7 +428,6 @@ async function loadTeam() {
   } catch {}
 }
 
-// Navigation & Actions
 const btnRecharge = document.getElementById('btn-nav-recharge');
 if (btnRecharge) btnRecharge.addEventListener('click', openRechargePage);
 
@@ -484,21 +484,18 @@ if (menuTx) {
   });
 }
 
-// Modal close
 document.querySelectorAll('.modal-close').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.modal').forEach(m => m.classList.remove('open'));
   });
 });
 
-// Bottom tabs
 document.querySelectorAll('.nav-item').forEach(btn => {
   btn.addEventListener('click', () => {
     switchView(btn.dataset.view);
   });
 });
 
-// Referral Code Copy
 const copyCodeBtn = document.getElementById('btn-copy-code');
 if (copyCodeBtn) {
   copyCodeBtn.addEventListener('click', () => {
@@ -510,7 +507,6 @@ if (copyCodeBtn) {
   });
 }
 
-// Return to Admin button handler
 const returnBtn = document.getElementById('btn-return-admin');
 if (returnBtn) {
   returnBtn.addEventListener('click', () => {
@@ -518,7 +514,6 @@ if (returnBtn) {
   });
 }
 
-// Auth Handlers
 const showRegLink = document.getElementById('link-show-register');
 if (showRegLink) {
   showRegLink.addEventListener('click', (e) => {
