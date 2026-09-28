@@ -58,6 +58,12 @@
 
   <!-- APP CONTAINER -->
   <div id="app-container" class="app-wrapper" style="display: none;">
+    <!-- Impersonation Bar -->
+    <div id="impersonation-bar" style="display:none;background:#b91c1c;color:#fff;padding:8px 14px;font-size:12px;font-weight:700;display:flex;justify-content:space-between;align-items:center;z-index:99999;position:sticky;top:0;">
+      <span><i class="fa-solid fa-user-secret"></i> Viewing account as Administrator</span>
+      <button id="btn-return-admin" style="background:#fff;color:#b91c1c;border:none;padding:4px 10px;border-radius:6px;font-weight:800;cursor:pointer;">Return to Admin</button>
+    </div>
+
     <!-- Top Header -->
     <header class="app-header">
       <div class="header-content">
@@ -190,7 +196,8 @@
           <p>Multi-channel quick recharge</p>
         </div>
 
-        <div class="recharge-section">
+        <!-- STAGE 1: AMOUNT & CHANNEL SELECTION -->
+        <div id="recharge-stage-select" class="recharge-section">
           <div class="recharge-label-row">
             <span>Recharge amount</span>
             <span class="currency-tag">NGN</span>
@@ -221,9 +228,23 @@
 
           <div class="channels-list" id="payment-channels-list"></div>
 
-          <!-- Selected channel details card -->
-          <div id="channel-details-box" class="channel-details-card" style="display: none;">
-            <h4>Official Receiving Account</h4>
+          <!-- Explicit Proceed Button -->
+          <button class="btn btn-primary btn-block confirm-btn" id="btn-proceed-to-payment" style="margin-top: 20px;">
+            Continue to Deposit
+          </button>
+        </div>
+
+        <!-- STAGE 2: PAYMENT DETAILS & SUBMISSION FORM -->
+        <div id="recharge-stage-pay" class="recharge-section" style="display: none;">
+          <div class="channel-details-card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+              <h4 style="margin-bottom:0;" id="det-channel-title">Official Receiving Account</h4>
+              <button class="btn btn-sm btn-secondary" id="btn-change-channel"><i class="fa-solid fa-arrow-rotate-left"></i> Change Channel</button>
+            </div>
+            <div class="detail-row">
+              <span class="detail-title">Amount to Transfer:</span>
+              <strong style="color: var(--primary); font-size:16px;" id="det-pay-amount">₦0.00</strong>
+            </div>
             <div class="detail-row">
               <span class="detail-title">Bank Name:</span>
               <strong id="det-bank-name">---</strong>
@@ -235,27 +256,39 @@
             <div class="detail-row">
               <span class="detail-title">Account Number:</span>
               <div class="copy-field">
-                <strong id="det-acc-number">---</strong>
+                <strong id="det-acc-number" style="font-size:15px; letter-spacing:1px;">---</strong>
                 <button type="button" class="btn btn-sm btn-secondary" id="btn-copy-account">Copy</button>
               </div>
             </div>
             <p class="instructions-note" id="det-instructions"></p>
           </div>
 
-          <!-- Proof Form -->
+          <!-- Deposit Verification Form -->
           <div class="proof-form-group">
-            <label>Sender Full Name / Payment Remarks</label>
-            <input type="text" id="recharge-sender-name" placeholder="Full name used to transfer" />
+            <label>Depositor / Sender Full Name <span style="color:var(--danger)">*</span></label>
+            <input type="text" id="recharge-sender-name" placeholder="Full name on your bank account" required />
           </div>
 
-          <button class="btn btn-primary btn-block confirm-btn" id="btn-confirm-recharge">Confirm & Submit</button>
+          <!-- Receipt Screenshot Upload -->
+          <div class="proof-form-group">
+            <label>Upload Payment Receipt (Screenshot)</label>
+            <input type="file" id="recharge-receipt-file" accept="image/*" style="padding: 8px;" />
+            <div id="receipt-preview-wrap" style="display:none; margin-top:10px; text-align:center;">
+              <img id="receipt-preview-img" src="" alt="Receipt Preview" style="max-width:100%; max-height:180px; border-radius:8px; border:1px solid var(--border-light);" />
+            </div>
+          </div>
+
+          <button class="btn btn-primary btn-block confirm-btn" id="btn-confirm-recharge">
+            Submit Deposit for Review
+          </button>
 
           <div class="recharge-instructions">
             <h5>RECHARGE INSTRUCTIONS</h5>
             <ol>
-              <li>Please copy the account details provided above and make a direct bank transfer.</li>
-              <li>Always verify the account name before confirming your payment in your bank app.</li>
-              <li>Recharge requests are credited upon administrator verification.</li>
+              <li>Copy the bank account details shown above and transfer the exact amount using your mobile banking app or USSD.</li>
+              <li>Ensure the account name matches before confirming payment.</li>
+              <li>Upload a clear screenshot of your transaction receipt and enter your sender name.</li>
+              <li>Your wallet balance will be credited as soon as an administrator verifies the payment.</li>
             </ol>
           </div>
         </div>
