@@ -2,8 +2,17 @@ import { sql, getAuthUser } from './_db.js';
 
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json');
-  const user = await getAuthUser(req);
-  if (!user) return res.status(401).json({ error: 'Please log in to continue.' });
+
+  let user;
+  try {
+    user = await getAuthUser(req);
+  } catch (err) {
+    return res.status(401).json({ error: 'Please log in to continue.' });
+  }
+
+  if (!user) {
+    return res.status(401).json({ error: 'Please log in to continue.' });
+  }
 
   const action = req.query.action;
 
@@ -12,26 +21,30 @@ export default async function handler(req, res) {
   // -------------------------------------------------------------
   if (action === 'invite') {
     try {
-      const settingsRows = await sql`
-        SELECT id, val FROM platform_settings 
-        WHERE id IN ('referral_l1_rate', 'referral_l2_rate')
-      `;
-
       let l1Rate = 20;
       let l2Rate = 2;
 
-      settingsRows.forEach(r => {
-        if (r.id === 'referral_l1_rate') l1Rate = parseFloat(r.val) || 20;
-        if (r.id === 'referral_l2_rate') l2Rate = parseFloat(r.val) || 2;
-      });
+      try {
+        const settingsRows = await sql`
+          SELECT id, val FROM platform_settings 
+          WHERE id IN ('referral_l1_rate', 'referral_l2_rate')
+        `;
+        settingsRows.forEach(r => {
+          if (r.id === 'referral_l1_rate') l1Rate = parseFloat(r.val) || 20;
+          if (r.id === 'referral_l2_rate') l2Rate = parseFloat(r.val) || 2;
+        });
+      } catch (e) {
+        // Fallback to default 20% and 2% if table query fails
+      }
 
       const host = req.headers['host'] || 'test-site-henna-rho.vercel.app';
       const proto = req.headers['x-forwarded-proto'] || 'https';
-      const referralLink = `${proto}://${host}/?ref=${user.referral_code}`;
+      const refCode = user.referral_code || 'NV' + user.id;
+      const referralLink = `${proto}://${host}/?ref=${refCode}`;
 
       return res.status(200).json({
         success: true,
-        referral_code: user.referral_code,
+        referral_code: refCode,
         referral_link: referralLink,
         rates: {
           level1: l1Rate,
@@ -48,29 +61,33 @@ export default async function handler(req, res) {
   // 2. TEAM MEMBERS & COMMISSIONS ROUTE
   // -------------------------------------------------------------
   try {
-    // Team 1: Direct Referrals
+    // 1. Direct Referrals (Team 1)
     const team1Users = await sql`
       SELECT id, phone_number, created_at 
       FROM users 
       WHERE referred_by = ${user.id} 
       ORDER BY created_at DESC
     `;
+
     const t1Ids = team1Users.map(u => u.id);
 
-    // Team 2: Secondary Referrals
+    // 2. Secondary Referrals (Team 2)
     let team2Users = [];
     if (t1Ids.length > 0) {
       team2Users = await sql`
         SELECT id, phone_number, created_at, referred_by 
         FROM users 
-        WHERE referred_by = ANY(${t1Ids}) 
+        WHERE referred_by IN ${sql(t1Ids)} 
         ORDER BY created_at DESC
       `;
     }
 
-    // Granular Commission Records
-    const [t1Commissions, t2Commissions] = await Promise.all([
-      sql`
+    // 3. Query Commission Records safely
+    let t1Commissions = [];
+    let t2Commissions = [];
+
+    try {
+      t1Commissions = await sql`
         SELECT 
           rc.buyer_id, 
           u.phone_number, 
@@ -83,8 +100,13 @@ export default async function handler(req, res) {
         LEFT JOIN purchases p ON rc.purchase_id = p.id
         WHERE rc.referrer_id = ${user.id} AND rc.level = 1
         ORDER BY rc.created_at DESC
-      `,
-      sql`
+      `;
+    } catch (e) {
+      t1Commissions = [];
+    }
+
+    try {
+      t2Commissions = await sql`
         SELECT 
           rc.buyer_id, 
           u.phone_number, 
@@ -97,13 +119,15 @@ export default async function handler(req, res) {
         LEFT JOIN purchases p ON rc.purchase_id = p.id
         WHERE rc.referrer_id = ${user.id} AND rc.level = 2
         ORDER BY rc.created_at DESC
-      `
-    ]);
+      `;
+    } catch (e) {
+      t2Commissions = [];
+    }
 
     const team1TotalIncome = t1Commissions.reduce((acc, c) => acc + parseFloat(c.commission_amount || 0), 0);
     const team2TotalIncome = t2Commissions.reduce((acc, c) => acc + parseFloat(c.commission_amount || 0), 0);
 
-    const mask = (p) => (p && p.length > 6 ? p.substring(0, 3) + '****' + p.substring(p.length - 2) : '****');
+    const mask = (p) => (p && p.length > 6 ? p.substring(0, 3) + '****' + p.substring(p.length - 2) : 'User #' + p);
 
     return res.status(200).json({
       success: true,
@@ -112,10 +136,10 @@ export default async function handler(req, res) {
         total_income: team1TotalIncome,
         records: t1Commissions.map(c => ({
           user_id: c.buyer_id,
-          phone: mask(c.phone_number),
+          phone: mask(c.phone_number || String(c.buyer_id)),
           product_name: c.product_name,
-          amount_bought: parseFloat(c.purchase_amount),
-          commission: parseFloat(c.commission_amount),
+          amount_bought: parseFloat(c.purchase_amount || 0),
+          commission: parseFloat(c.commission_amount || 0),
           created_at: c.created_at
         }))
       },
@@ -124,16 +148,16 @@ export default async function handler(req, res) {
         total_income: team2TotalIncome,
         records: t2Commissions.map(c => ({
           user_id: c.buyer_id,
-          phone: mask(c.phone_number),
+          phone: mask(c.phone_number || String(c.buyer_id)),
           product_name: c.product_name,
-          amount_bought: parseFloat(c.purchase_amount),
-          commission: parseFloat(c.commission_amount),
+          amount_bought: parseFloat(c.purchase_amount || 0),
+          commission: parseFloat(c.commission_amount || 0),
           created_at: c.created_at
         }))
       }
     });
   } catch (err) {
     console.error('Team API error:', err);
-    return res.status(500).json({ error: 'Failed to load team data.' });
+    return res.status(500).json({ error: 'Failed to load team data: ' + (err.message || 'Database error') });
   }
 }
