@@ -50,8 +50,10 @@ module.exports = async function handler(req, res) {
       const token = createSessionToken(user.id);
       res.setHeader('Set-Cookie', `novavest_session=${token}; HttpOnly; Path=/; Max-Age=2592000; SameSite=Lax; Secure`);
       return res.status(200).json({ success: true, user });
-    } catch {
-      return res.status(500).json({ error: 'Something went wrong. Please try again.' });
+    } catch (err) {
+      console.error('Registration DB Error:', err);
+      // Return specific error message to help identify database discrepancies
+      return res.status(500).json({ error: err.message || 'Database error during registration.' });
     }
   }
 
@@ -83,8 +85,9 @@ module.exports = async function handler(req, res) {
       const token = createSessionToken(user.id);
       res.setHeader('Set-Cookie', `novavest_session=${token}; HttpOnly; Path=/; Max-Age=2592000; SameSite=Lax; Secure`);
       return res.status(200).json({ success: true, user });
-    } catch {
-      return res.status(500).json({ error: 'Something went wrong. Please try again.' });
+    } catch (err) {
+      console.error('Login DB Error:', err);
+      return res.status(500).json({ error: err.message || 'Database error during login.' });
     }
   }
 
@@ -94,11 +97,15 @@ module.exports = async function handler(req, res) {
   }
 
   if (action === 'me') {
-    const user = await getAuthenticatedUser(req);
-    if (!user) {
-      return res.status(401).json({ error: 'Please log in to continue.' });
+    try {
+      const user = await getAuthenticatedUser(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Please log in to continue.' });
+      }
+      return res.status(200).json({ success: true, user });
+    } catch (err) {
+      return res.status(401).json({ error: 'Session expired. Please log in.' });
     }
-    return res.status(200).json({ success: true, user });
   }
 
   return res.status(404).json({ error: 'Not found.' });
