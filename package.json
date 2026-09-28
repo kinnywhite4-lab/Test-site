@@ -1,9 +1,15 @@
 {
-  "name": "novavest-backend",
+  "name": "novavest",
   "version": "1.0.0",
   "private": true,
-  "type": "module",
+  "scripts": {
+    "dev": "vercel dev",
+    "build": "echo 'No build step required'"
+  },
   "dependencies": {
-    "@neondatabase/serverless": "^1.0.1"
+    "pg": "^8.11.3"
+  }
+}
+
   }
 }
