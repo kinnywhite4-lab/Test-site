@@ -1,12 +1,7 @@
-import pg from 'pg';
+import { neon } from '@neondatabase/serverless';
 import crypto from 'crypto';
 
-const { Pool } = pg;
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
-});
+const sql = neon(process.env.DATABASE_URL);
 
 const SESSION_SECRET = process.env.SESSION_SECRET || 'novavest_secure_session_secret_2026';
 
@@ -49,32 +44,32 @@ export default async function handler(req, res) {
   }
 
   try {
-    const userRes = await pool.query(
-      'SELECT id, phone_number, balance, withdrawable_balance, total_income, total_withdrawn, referral_code, referred_by FROM users WHERE id = $1',
-      [userId]
-    );
+    const userRes = await sql`
+      SELECT id, phone_number, balance, withdrawable_balance, total_income, total_withdrawn, referral_code, referred_by 
+      FROM users WHERE id = ${userId}
+    `;
 
-    const user = userRes.rows[0];
+    const user = userRes[0];
     if (!user) {
       return res.status(401).json({ error: 'User not found.' });
     }
 
     const [bankRes, purchasesRes, depositsRes, withdrawalsRes, transactionsRes] = await Promise.all([
-      pool.query('SELECT bank_name, account_number, account_name FROM bank_cards WHERE user_id = $1', [userId]),
-      pool.query('SELECT * FROM purchases WHERE user_id = $1 ORDER BY created_at DESC', [userId]),
-      pool.query('SELECT * FROM deposits WHERE user_id = $1 ORDER BY created_at DESC', [userId]),
-      pool.query('SELECT * FROM withdrawals WHERE user_id = $1 ORDER BY created_at DESC', [userId]),
-      pool.query('SELECT * FROM transactions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50', [userId])
+      sql`SELECT bank_name, account_number, account_name FROM bank_cards WHERE user_id = ${userId}`,
+      sql`SELECT * FROM purchases WHERE user_id = ${userId} ORDER BY created_at DESC`,
+      sql`SELECT * FROM deposits WHERE user_id = ${userId} ORDER BY created_at DESC`,
+      sql`SELECT * FROM withdrawals WHERE user_id = ${userId} ORDER BY created_at DESC`,
+      sql`SELECT * FROM transactions WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT 50`
     ]);
 
     return res.status(200).json({
       success: true,
       user,
-      bank: bankRes.rows[0] || null,
-      purchases: purchasesRes.rows,
-      deposits: depositsRes.rows,
-      withdrawals: withdrawalsRes.rows,
-      transactions: transactionsRes.rows
+      bank: bankRes[0] || null,
+      purchases: purchasesRes,
+      deposits: depositsRes,
+      withdrawals: withdrawalsRes,
+      transactions: transactionsRes
     });
   } catch (err) {
     console.error('Bootstrap Error:', err);
