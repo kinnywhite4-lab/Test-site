@@ -1,21 +1,18 @@
-const { pool, getAuthenticatedUser } = require('./_db');
+import { sql, getAuthUser } from './_db.js';
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json');
-  const user = await getAuthenticatedUser(req);
-  if (!user) {
-    return res.status(401).json({ error: 'Please log in to continue.' });
-  }
+  const user = await getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Please log in to continue.' });
 
   if (req.method === 'GET') {
     try {
-      const { rows } = await pool.query(
-        'SELECT * FROM withdrawals WHERE user_id = $1 ORDER BY created_at DESC',
-        [user.id]
-      );
-      return res.status(200).json({ success: true, withdrawals: rows });
+      const withdrawals = await sql`
+        SELECT * FROM withdrawals WHERE user_id = ${user.id} ORDER BY created_at DESC
+      `;
+      return res.status(200).json({ success: true, withdrawals });
     } catch {
-      return res.status(500).json({ error: 'Something went wrong. Please try again.' });
+      return res.status(500).json({ error: 'Failed to load withdrawals.' });
     }
   }
 
@@ -24,63 +21,53 @@ module.exports = async function handler(req, res) {
     const parsedAmount = parseFloat(amount);
 
     if (isNaN(parsedAmount) || parsedAmount < 1000) {
-      return res.status(400).json({ error: 'Minimum withdrawal amount is 1,000.' });
+      return res.status(400).json({ error: 'Minimum withdrawal amount is ₦1,000.' });
     }
 
-    const client = await pool.connect();
     try {
-      await client.query('BEGIN');
+      const userRows = await sql`SELECT withdrawable_balance FROM users WHERE id = ${user.id}`;
+      const withdrawable = parseFloat(userRows[0]?.withdrawable_balance || 0);
 
-      const userRes = await client.query(
-        'SELECT withdrawable_balance FROM users WHERE id = $1 FOR UPDATE',
-        [user.id]
-      );
-      const currentWithdrawable = parseFloat(userRes.rows[0].withdrawable_balance);
-
-      if (currentWithdrawable < parsedAmount) {
-        await client.query('ROLLBACK');
+      if (withdrawable < parsedAmount) {
         return res.status(400).json({ error: 'Insufficient withdrawable balance.' });
       }
 
-      const bankRes = await client.query('SELECT * FROM bank_cards WHERE user_id = $1', [user.id]);
-      if (bankRes.rows.length === 0) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ error: 'Please add your bank details first.' });
+      const bankCards = await sql`SELECT * FROM bank_cards WHERE user_id = ${user.id}`;
+      if (bankCards.length === 0) {
+        return res.status(400).json({ error: 'Please add your bank account before requesting a withdrawal.' });
       }
 
-      const bank = bankRes.rows[0];
+      const bank = bankCards[0];
       const fee = parsedAmount * 0.10;
       const netAmount = parsedAmount - fee;
 
-      await client.query(
-        `INSERT INTO withdrawals (user_id, amount, fee, net_amount, bank_name, account_number, account_name, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'Pending')`,
-        [user.id, parsedAmount, fee, netAmount, bank.bank_name, bank.account_number, bank.account_name]
-      );
+      // Atomically reserve/deduct the requested amount
+      await sql`
+        UPDATE users 
+        SET withdrawable_balance = withdrawable_balance - ${parsedAmount},
+            total_withdrawn = total_withdrawn + ${parsedAmount}
+        WHERE id = ${user.id}
+      `;
 
-      await client.query(
-        `UPDATE users 
-         SET withdrawable_balance = withdrawable_balance - $1,
-             total_withdrawn = total_withdrawn + $1
-         WHERE id = $2`,
-        [parsedAmount, user.id]
-      );
+      await sql`
+        INSERT INTO withdrawals (user_id, amount, fee, net_amount, bank_name, account_number, account_name, status)
+        VALUES (${user.id}, ${parsedAmount}, ${fee}, ${netAmount}, ${bank.bank_name}, ${bank.account_number}, ${bank.account_name}, 'Pending')
+      `;
 
-      await client.query(
-        `INSERT INTO transactions (user_id, type, title, amount, direction)
-         VALUES ($1, 'Withdrawal', 'Account Withdrawal', $2, 'out')`,
-        [user.id, parsedAmount]
-      );
+      await sql`
+        INSERT INTO transactions (user_id, type, title, amount, direction)
+        VALUES (${user.id}, 'Withdrawal', 'Withdrawal Request (Pending)', ${parsedAmount}, 'out')
+      `;
 
-      await client.query('COMMIT');
-      return res.status(200).json({ success: true, message: 'Withdrawal submitted successfully.' });
-    } catch {
-      await client.query('ROLLBACK');
-      return res.status(500).json({ error: 'Something went wrong. Please try again.' });
-    } finally {
-      client.release();
+      return res.status(200).json({
+        success: true,
+        message: 'Withdrawal submitted successfully and is pending review.'
+      });
+    } catch (err) {
+      console.error('Withdrawal error:', err);
+      return res.status(500).json({ error: 'Failed to process withdrawal.' });
     }
   }
 
   return res.status(405).json({ error: 'Method not allowed.' });
-};
+}
