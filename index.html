@@ -80,7 +80,6 @@
     <main class="app-main">
       <!-- 1. HOME VIEW -->
       <section id="view-home" class="view-section active">
-        <!-- Brand Information Showcase (Carousel) -->
         <div class="company-carousel">
           <div class="carousel-slide active">
             <div class="carousel-content">
@@ -96,7 +95,6 @@
           </div>
         </div>
 
-        <!-- Main Home Actions -->
         <div class="quick-actions">
           <button class="action-btn" id="btn-nav-recharge">
             <i class="fa-solid fa-wallet"></i>
@@ -107,7 +105,7 @@
             <span>Withdraw</span>
           </button>
           <button class="action-btn" id="btn-nav-invite">
-            <i class="fa-solid fa-user-group"></i>
+            <i class="fa-solid fa-user-plus"></i>
             <span>Invite</span>
           </button>
           <button class="action-btn" id="btn-nav-gift">
@@ -120,62 +118,123 @@
         <div class="product-list" id="home-product-list"></div>
       </section>
 
-      <!-- 2. PRODUCTS VIEW (MY EQUIPMENT WITH DROP COUNTDOWN TIMERS) -->
+      <!-- 2. PRODUCTS VIEW -->
       <section id="view-products" class="view-section">
         <div class="section-title">My Active Equipment</div>
         <div class="my-product-list" id="my-product-list"></div>
       </section>
 
-      <!-- 3. TEAM VIEW (TEAM 1 & TEAM 2 SEPARATE AUDITS) -->
-      <section id="view-team" class="view-section">
-        <div class="team-card">
-          <div class="team-label">Your Referral Code</div>
-          <div class="referral-box">
-            <span id="team-ref-code">------</span>
-            <button class="btn btn-secondary btn-sm" id="btn-copy-code">Copy Link</button>
+      <!-- 3. DEDICATED INVITE PAGE -->
+      <section id="view-invite" class="view-section">
+        <div class="subpage-header">
+          <button class="back-btn" data-back="home"><i class="fa-solid fa-chevron-left"></i></button>
+          <h2>Invite Friends</h2>
+        </div>
+
+        <div class="invite-banner-card">
+          <i class="fa-solid fa-share-nodes invite-icon-anim"></i>
+          <h3>Share & Earn Commissions</h3>
+          <p>Invite friends using your unique link or code to receive continuous daily purchase rewards.</p>
+        </div>
+
+        <div class="invite-box-group">
+          <label>Your Referral Link</label>
+          <div class="copy-input-row">
+            <input type="text" id="invite-link-val" readonly value="Loading link..." />
+            <button class="btn btn-primary btn-sm" id="btn-copy-invite-link"><i class="fa-solid fa-copy"></i> Copy Link</button>
           </div>
         </div>
 
-        <!-- Team 1 Card -->
-        <div class="team-tier-card" id="card-team-1">
-          <div class="tier-header">
-            <h4><i class="fa-solid fa-users"></i> Team 1 (Direct Referrals)</h4>
-            <span class="tier-badge">Level 1</span>
+        <div class="invite-box-group">
+          <label>Your Referral Code</label>
+          <div class="copy-input-row">
+            <input type="text" id="invite-code-val" readonly value="------" style="letter-spacing: 2px; font-weight:800;" />
+            <button class="btn btn-secondary btn-sm" id="btn-copy-invite-code"><i class="fa-solid fa-copy"></i> Copy Code</button>
           </div>
-          <div class="tier-stats">
-            <div>
-              <span class="lbl">Members:</span>
-              <strong id="team1-count">0</strong>
-            </div>
-            <div>
-              <span class="lbl">Total Earned:</span>
-              <strong class="text-success" id="team1-income">₦0.00</strong>
-            </div>
-          </div>
-          <div class="tier-members-list" id="team1-list"></div>
         </div>
 
-        <!-- Team 2 Card -->
-        <div class="team-tier-card" id="card-team-2">
-          <div class="tier-header">
-            <h4><i class="fa-solid fa-network-wired"></i> Team 2 (Indirect Referrals)</h4>
-            <span class="tier-badge">Level 2</span>
-          </div>
-          <div class="tier-stats">
-            <div>
-              <span class="lbl">Members:</span>
-              <strong id="team2-count">0</strong>
+        <div class="invite-rules-card">
+          <h4><i class="fa-solid fa-circle-info"></i> Commission Structure</h4>
+          <div class="rule-tier">
+            <div class="rule-tier-head">
+              <strong>Level 1 (Direct Referral)</strong>
+              <span class="rate-badge" id="invite-rate-l1">20%</span>
             </div>
-            <div>
-              <span class="lbl">Total Earned:</span>
-              <strong class="text-success" id="team2-income">₦0.00</strong>
-            </div>
+            <p>Earned immediately whenever a friend you directly invited purchases VIP equipment.</p>
           </div>
-          <div class="tier-members-list" id="team2-list"></div>
+          <div class="rule-tier" style="margin-top: 12px;">
+            <div class="rule-tier-head">
+              <strong>Level 2 (Indirect Referral)</strong>
+              <span class="rate-badge" id="invite-rate-l2">2%</span>
+            </div>
+            <p>Earned whenever an invitee of your direct referral makes an equipment purchase.</p>
+          </div>
         </div>
       </section>
 
-      <!-- 4. PROFILE VIEW (BALANCES, ID BADGE, TELEGRAM & SETTINGS) -->
+      <!-- 4. DEDICATED TEAM PAGE -->
+      <section id="view-team" class="view-section">
+        <div class="section-title">Referral Team Overview</div>
+
+        <div class="team-cards-grid">
+          <div class="team-summary-card" id="card-team-tier-1" onclick="selectTeamTier(1)">
+            <div class="team-card-header">
+              <span class="tier-pill">Tier 1</span>
+              <i class="fa-solid fa-users"></i>
+            </div>
+            <div class="team-card-title">First Referral</div>
+            <div class="team-card-stat">
+              <span class="lbl">Total Members:</span>
+              <strong id="team1-members-count">0</strong>
+            </div>
+            <div class="team-card-stat">
+              <span class="lbl">Total Income:</span>
+              <strong class="text-success" id="team1-members-income">₦0.00</strong>
+            </div>
+            <div class="tap-hint"><i class="fa-solid fa-arrow-pointer"></i> Tap to view details</div>
+          </div>
+
+          <div class="team-summary-card" id="card-team-tier-2" onclick="selectTeamTier(2)">
+            <div class="team-card-header">
+              <span class="tier-pill">Tier 2</span>
+              <i class="fa-solid fa-network-wired"></i>
+            </div>
+            <div class="team-card-title">Second Referral</div>
+            <div class="team-card-stat">
+              <span class="lbl">Total Members:</span>
+              <strong id="team2-members-count">0</strong>
+            </div>
+            <div class="team-card-stat">
+              <span class="lbl">Total Income:</span>
+              <strong class="text-success" id="team2-members-income">₦0.00</strong>
+            </div>
+            <div class="tap-hint"><i class="fa-solid fa-arrow-pointer"></i> Tap to view details</div>
+          </div>
+        </div>
+
+        <div class="team-details-panel">
+          <div class="team-panel-header">
+            <h4 id="team-active-title">First Referral Members History</h4>
+          </div>
+
+          <div class="table-responsive">
+            <table class="team-table">
+              <thead>
+                <tr>
+                  <th>User ID / Phone</th>
+                  <th>Product / Amount Bought</th>
+                  <th>Commission</th>
+                </tr>
+              </thead>
+              <tbody id="team-table-body">
+                <tr><td colspan="3" class="empty-state">Loading team history...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- 5. PROFILE VIEW -->
       <section id="view-profile" class="view-section">
         <div class="profile-header">
           <div class="profile-avatar"><i class="fa-solid fa-user-shield"></i></div>
@@ -185,7 +244,6 @@
           </div>
         </div>
 
-        <!-- Official Balance Summary Section -->
         <div class="balance-card">
           <div class="balance-label">Deposit Balance (Remaining Deposit)</div>
           <div class="balance-amount" id="prof-deposit-bal">₦0.00</div>
@@ -201,7 +259,6 @@
           </div>
         </div>
 
-        <!-- Telegram Support Channels -->
         <div class="telegram-section">
           <a href="https://t.me/novavest_group" target="_blank" class="telegram-card" id="link-tg-group">
             <i class="fa-brands fa-telegram"></i>
@@ -245,7 +302,7 @@
         </div>
       </section>
 
-      <!-- 5. DEDICATED RECHARGE / DEPOSIT PAGE -->
+      <!-- 6. DEDICATED RECHARGE / DEPOSIT PAGE -->
       <section id="view-recharge" class="view-section">
         <div class="subpage-header">
           <button class="back-btn" data-back="home"><i class="fa-solid fa-chevron-left"></i></button>
@@ -257,7 +314,6 @@
           <p>Multi-channel quick recharge</p>
         </div>
 
-        <!-- STAGE 1: AMOUNT & CHANNEL SELECTION -->
         <div id="recharge-stage-select" class="recharge-section">
           <div class="recharge-label-row">
             <span>Recharge amount</span>
@@ -294,7 +350,6 @@
           </button>
         </div>
 
-        <!-- STAGE 2: MANDATORY DEPOSITOR NAME & SCREENSHOT PROOF -->
         <div id="recharge-stage-pay" class="recharge-section" style="display: none;">
           <div class="channel-details-card">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
@@ -342,7 +397,7 @@
         </div>
       </section>
 
-      <!-- 6. DEDICATED WITHDRAWAL PAGE -->
+      <!-- 7. DEDICATED WITHDRAWAL PAGE -->
       <section id="view-withdrawal" class="view-section">
         <div class="subpage-header">
           <button class="back-btn" data-back="home"><i class="fa-solid fa-chevron-left"></i></button>
@@ -369,7 +424,7 @@
         </div>
       </section>
 
-      <!-- 7. DEDICATED BANK CARD PAGE -->
+      <!-- 8. DEDICATED BANK CARD PAGE -->
       <section id="view-bank-card" class="view-section">
         <div class="subpage-header">
           <button class="back-btn" data-back="profile"><i class="fa-solid fa-chevron-left"></i></button>
@@ -395,7 +450,7 @@
         </div>
       </section>
 
-      <!-- 8. DEDICATED GIFT CODE PAGE -->
+      <!-- 9. DEDICATED GIFT CODE PAGE -->
       <section id="view-gift" class="view-section">
         <div class="subpage-header">
           <button class="back-btn" data-back="home"><i class="fa-solid fa-chevron-left"></i></button>
@@ -424,7 +479,7 @@
         </div>
       </section>
 
-      <!-- 9. DEDICATED HISTORY PAGE -->
+      <!-- 10. DEDICATED HISTORY PAGE -->
       <section id="view-history" class="view-section">
         <div class="subpage-header">
           <button class="back-btn" data-back="profile"><i class="fa-solid fa-chevron-left"></i></button>
