@@ -32,7 +32,6 @@ async function verifyAdminAuth(req, sql) {
   return { authorized: false };
 }
 
-// Helper: Detect the exact deposit balance column in user object
 function getDepositBal(u) {
   if (u.deposit_balance !== undefined && u.deposit_balance !== null) return Number(u.deposit_balance);
   if (u.balance !== undefined && u.balance !== null) return Number(u.balance);
@@ -41,12 +40,72 @@ function getDepositBal(u) {
   return 0;
 }
 
-// Helper: Detect the exact withdrawal balance column in user object
 function getWithdrawBal(u) {
   if (u.withdrawable_balance !== undefined && u.withdrawable_balance !== null) return Number(u.withdrawable_balance);
   if (u.withdrawal_balance !== undefined && u.withdrawal_balance !== null) return Number(u.withdrawal_balance);
   if (u.income_balance !== undefined && u.income_balance !== null) return Number(u.income_balance);
   return 0;
+}
+
+// Universal helper to fetch all user investments across schema variations
+async function fetchAllInvestments(sql) {
+  let rawInvestments = [];
+
+  // 1. Try user_products
+  try {
+    rawInvestments = await sql`SELECT * FROM user_products ORDER BY id DESC`;
+  } catch (e1) {
+    // 2. Try user_investments
+    try {
+      rawInvestments = await sql`SELECT * FROM user_investments ORDER BY id DESC`;
+    } catch (e2) {
+      // 3. Try purchases
+      try {
+        rawInvestments = await sql`SELECT * FROM purchases ORDER BY id DESC`;
+      } catch (e3) {
+        rawInvestments = [];
+      }
+    }
+  }
+
+  if (!rawInvestments || rawInvestments.length === 0) {
+    return [];
+  }
+
+  const [allUsers, allProducts] = await Promise.all([
+    sql`SELECT * FROM users`.catch(() => []),
+    sql`SELECT * FROM products`.catch(() => [])
+  ]);
+
+  const userMap = new Map();
+  allUsers.forEach(u => userMap.set(u.id, u.phone_number || u.phone || `User #${u.id}`));
+
+  const prodMap = new Map();
+  allProducts.forEach(p => prodMap.set(p.id, p));
+
+  return rawInvestments.map(inv => {
+    const prod = prodMap.get(inv.product_id) || {};
+    const price = Number(inv.price || inv.amount_paid || inv.amount || prod.price || 0);
+    const dailyIncome = Number(inv.daily_yield || inv.daily_income || prod.daily_yield || prod.daily_income || 0);
+    const days = Number(inv.duration_days || inv.period_days || prod.duration_days || prod.period_days || 30);
+    const totalRev = Number(inv.total_revenue || (dailyIncome * days) || price);
+
+    const createdAt = inv.created_at || inv.purchase_date || new Date().toISOString();
+    const nextDrop = inv.next_drop_time || new Date(new Date(createdAt).getTime() + 86400000).toISOString();
+
+    return {
+      id: inv.id,
+      product_name: inv.product_name || prod.name || 'VIP Equipment',
+      price: price,
+      amount_paid: price,
+      total_revenue: totalRev,
+      status: (inv.status || 'Active').charAt(0).toUpperCase() + (inv.status || 'Active').slice(1).toLowerCase(),
+      user_id: inv.user_id,
+      phone_number: userMap.get(inv.user_id) || 'Investor',
+      created_at: createdAt,
+      next_drop_time: nextDrop
+    };
+  });
 }
 
 export default async function handler(req, res) {
@@ -74,7 +133,10 @@ export default async function handler(req, res) {
     // 1. DASHBOARD METRICS
     // -------------------------------------------------------------
     if (action === 'dashboard') {
-      const allUsers = await sql`SELECT * FROM users`.catch(() => []);
+      const [allUsers, investments] = await Promise.all([
+        sql`SELECT * FROM users`.catch(() => []),
+        fetchAllInvestments(sql)
+      ]);
       
       let totalUserBal = 0;
       allUsers.forEach(u => {
@@ -87,16 +149,8 @@ export default async function handler(req, res) {
       const [withAppr] = await sql`SELECT count(*)::int as count, COALESCE(sum(amount), 0)::numeric as total FROM withdrawals WHERE lower(status) = 'approved'`.catch(() => [{ count: 0, total: 0 }]);
       const [withPend] = await sql`SELECT count(*)::int as count, COALESCE(sum(amount), 0)::numeric as total FROM withdrawals WHERE lower(status) = 'pending'`.catch(() => [{ count: 0, total: 0 }]);
 
-      let invStats = { count: 0, total: 0 };
-      try {
-        const [res] = await sql`SELECT count(*)::int as count, COALESCE(sum(price), 0)::numeric as total FROM user_products WHERE lower(status) = 'active'`;
-        invStats = res || invStats;
-      } catch (e) {
-        const [res] = await sql`SELECT count(*)::int as count, COALESCE(sum(amount_paid), 0)::numeric as total FROM user_investments WHERE lower(status) = 'active'`.catch(() => [invStats]);
-        invStats = res || invStats;
-      }
-
-      const totalInvestment = Number(invStats.total || 0);
+      const activeInvestments = investments.filter(inv => inv.status.toLowerCase() === 'active');
+      const totalInvestment = activeInvestments.reduce((sum, inv) => sum + Number(inv.price || 0), 0);
       const platformProfit = totalInvestment - Number(withAppr.total || 0);
 
       return res.status(200).json({
@@ -107,7 +161,7 @@ export default async function handler(req, res) {
           total_deposits: Number(depAppr.total || 0),
           deposits_count: Number(depAppr.count || 0),
           total_investment: totalInvestment,
-          investment_count: Number(invStats.count || 0),
+          investment_count: activeInvestments.length,
           total_payouts: Number(withAppr.total || 0),
           payouts_count: Number(withAppr.count || 0),
           platform_profit: platformProfit,
@@ -155,20 +209,17 @@ export default async function handler(req, res) {
         created_at: rawUser.created_at
       };
 
-      const deposits = await sql`SELECT * FROM deposits WHERE user_id = ${user_id} ORDER BY id DESC LIMIT 20`.catch(() => []);
-      const withdrawals = await sql`SELECT * FROM withdrawals WHERE user_id = ${user_id} ORDER BY id DESC LIMIT 20`.catch(() => []);
-      
-      let purchases = [];
-      try {
-        purchases = await sql`SELECT * FROM user_products WHERE user_id = ${user_id} ORDER BY id DESC LIMIT 20`;
-      } catch (e) {
-        purchases = await sql`SELECT * FROM user_investments WHERE user_id = ${user_id} ORDER BY id DESC LIMIT 20`.catch(() => []);
-      }
+      const [deposits, withdrawals, allInvestments] = await Promise.all([
+        sql`SELECT * FROM deposits WHERE user_id = ${user_id} ORDER BY id DESC LIMIT 20`.catch(() => []),
+        sql`SELECT * FROM withdrawals WHERE user_id = ${user_id} ORDER BY id DESC LIMIT 20`.catch(() => []),
+        fetchAllInvestments(sql)
+      ]);
+
+      const purchases = allInvestments.filter(inv => String(inv.user_id) === String(user_id));
 
       return res.status(200).json({ success: true, user, deposits, withdrawals, purchases });
     }
 
-    // Dynamic Balance Adjustment (Handles whichever column exists)
     if (action === 'adjust-balance') {
       const { user_id, wallet_type, direction, amount, reason } = req.body || {};
       const numAmt = parseFloat(amount);
@@ -180,7 +231,6 @@ export default async function handler(req, res) {
       const isDeposit = wallet_type === 'deposit';
 
       if (isDeposit) {
-        // Detect whether table uses 'balance' or 'deposit_balance'
         const currentBal = getDepositBal(targetUser);
         const newBal = direction === 'add' ? currentBal + numAmt : Math.max(0, currentBal - numAmt);
 
@@ -239,51 +289,18 @@ export default async function handler(req, res) {
     }
 
     // -------------------------------------------------------------
-    // 3. INVESTMENTS
+    // 3. INVESTMENTS (FULL SCAN ACROSS ALL TABLES)
     // -------------------------------------------------------------
     if (action === 'investments') {
-      try {
-        const [rawInvestments, allUsers] = await Promise.all([
-          sql`
-            SELECT 
-              up.id,
-              p.name as product_name,
-              p.price,
-              up.user_id,
-              p.price as amount_paid,
-              (p.daily_yield * p.duration_days) as total_revenue,
-              COALESCE(up.status, 'Active') as status,
-              up.created_at,
-              (up.created_at + interval '1 day') as next_drop_time
-            FROM user_products up
-            LEFT JOIN products p ON up.product_id = p.id
-            ORDER BY up.id DESC
-          `,
-          sql`SELECT * FROM users`
-        ]);
-
-        const userMap = new Map();
-        allUsers.forEach(u => userMap.set(u.id, u.phone_number || u.phone || `User #${u.id}`));
-
-        const investments = rawInvestments.map(inv => ({
-          ...inv,
-          phone_number: userMap.get(inv.user_id) || 'Investor'
-        }));
-
-        return res.status(200).json({ success: true, investments });
-      } catch (e) {
-        const fallback = await sql`SELECT * FROM user_investments ORDER BY id DESC`.catch(() => []);
-        return res.status(200).json({ success: true, investments: fallback });
-      }
+      const investments = await fetchAllInvestments(sql);
+      return res.status(200).json({ success: true, investments });
     }
 
     if (action === 'delete-investment') {
       const { investment_id } = req.body || {};
-      try {
-        await sql`DELETE FROM user_products WHERE id = ${investment_id}`;
-      } catch (e) {
-        await sql`DELETE FROM user_investments WHERE id = ${investment_id}`.catch(() => {});
-      }
+      try { await sql`DELETE FROM user_products WHERE id = ${investment_id}`; } catch (e) {}
+      try { await sql`DELETE FROM user_investments WHERE id = ${investment_id}`; } catch (e) {}
+      try { await sql`DELETE FROM purchases WHERE id = ${investment_id}`; } catch (e) {}
       return res.status(200).json({ success: true, message: 'Investment deleted' });
     }
 
