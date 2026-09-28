@@ -32,27 +32,21 @@ async function verifyAdminAuth(req, sql) {
   return { authorized: false };
 }
 
-// Auto-provision settings table if missing
-async function ensureTables(sql) {
-  try {
-    await sql`
-      CREATE TABLE IF NOT EXISTS settings (
-        key VARCHAR(50) PRIMARY KEY,
-        value TEXT NOT NULL
-      );
-      INSERT INTO settings (key, value) VALUES
-        ('withdrawals_enabled', 'true'),
-        ('withdrawal_fee_percent', '10'),
-        ('min_withdrawal', '1000'),
-        ('welcome_bonus', '0'),
-        ('level1_rate', '20'),
-        ('level2_rate', '2'),
-        ('telegram_group', 'https://t.me/novavest_group'),
-        ('telegram_channel', 'https://t.me/novavest_channel'),
-        ('admin_key', 'novavest_admin_2026')
-      ON CONFLICT (key) DO NOTHING;
-    `;
-  } catch (e) {}
+// Helper: Detect the exact deposit balance column in user object
+function getDepositBal(u) {
+  if (u.deposit_balance !== undefined && u.deposit_balance !== null) return Number(u.deposit_balance);
+  if (u.balance !== undefined && u.balance !== null) return Number(u.balance);
+  if (u.recharge_balance !== undefined && u.recharge_balance !== null) return Number(u.recharge_balance);
+  if (u.wallet_balance !== undefined && u.wallet_balance !== null) return Number(u.wallet_balance);
+  return 0;
+}
+
+// Helper: Detect the exact withdrawal balance column in user object
+function getWithdrawBal(u) {
+  if (u.withdrawable_balance !== undefined && u.withdrawable_balance !== null) return Number(u.withdrawable_balance);
+  if (u.withdrawal_balance !== undefined && u.withdrawal_balance !== null) return Number(u.withdrawal_balance);
+  if (u.income_balance !== undefined && u.income_balance !== null) return Number(u.income_balance);
+  return 0;
 }
 
 export default async function handler(req, res) {
@@ -72,8 +66,6 @@ export default async function handler(req, res) {
     return res.status(401).json({ success: false, error: 'Unauthorized: Admin authentication failed.' });
   }
 
-  await ensureTables(sql);
-
   const { action } = req.query;
   const adminIdentifier = auth.identifier;
 
@@ -82,9 +74,13 @@ export default async function handler(req, res) {
     // 1. DASHBOARD METRICS
     // -------------------------------------------------------------
     if (action === 'dashboard') {
-      const [uCount] = await sql`SELECT count(*)::int as count FROM users`.catch(() => [{ count: 0 }]);
-      const [uBal] = await sql`SELECT COALESCE(sum(deposit_balance + withdrawable_balance), 0)::numeric as total FROM users`.catch(() => [{ total: 0 }]);
+      const allUsers = await sql`SELECT * FROM users`.catch(() => []);
       
+      let totalUserBal = 0;
+      allUsers.forEach(u => {
+        totalUserBal += getDepositBal(u) + getWithdrawBal(u);
+      });
+
       const [depAppr] = await sql`SELECT count(*)::int as count, COALESCE(sum(amount), 0)::numeric as total FROM deposits WHERE lower(status) = 'approved'`.catch(() => [{ count: 0, total: 0 }]);
       const [depPend] = await sql`SELECT count(*)::int as count, COALESCE(sum(amount), 0)::numeric as total FROM deposits WHERE lower(status) = 'pending'`.catch(() => [{ count: 0, total: 0 }]);
 
@@ -106,8 +102,8 @@ export default async function handler(req, res) {
       return res.status(200).json({
         success: true,
         stats: {
-          total_users: Number(uCount.count || 0),
-          total_balance: Number(uBal.total || 0),
+          total_users: allUsers.length,
+          total_balance: totalUserBal,
           total_deposits: Number(depAppr.total || 0),
           deposits_count: Number(depAppr.count || 0),
           total_investment: totalInvestment,
@@ -132,8 +128,8 @@ export default async function handler(req, res) {
         id: u.id,
         phone_number: u.phone_number || u.phone || 'Investor',
         referral_code: u.referral_code || '---',
-        deposit_balance: Number(u.deposit_balance || 0),
-        withdrawable_balance: Number(u.withdrawable_balance || 0),
+        deposit_balance: getDepositBal(u),
+        withdrawable_balance: getWithdrawBal(u),
         is_banned: Boolean(u.is_banned),
         created_at: u.created_at
       }));
@@ -151,8 +147,8 @@ export default async function handler(req, res) {
         id: rawUser.id,
         phone_number: rawUser.phone_number || rawUser.phone || 'Investor',
         referral_code: rawUser.referral_code || '---',
-        deposit_balance: Number(rawUser.deposit_balance || 0),
-        withdrawable_balance: Number(rawUser.withdrawable_balance || 0),
+        deposit_balance: getDepositBal(rawUser),
+        withdrawable_balance: getWithdrawBal(rawUser),
         total_deposited: Number(rawUser.total_deposited || 0),
         total_withdrawn: Number(rawUser.total_withdrawn || 0),
         is_banned: Boolean(rawUser.is_banned),
@@ -172,6 +168,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true, user, deposits, withdrawals, purchases });
     }
 
+    // Dynamic Balance Adjustment (Handles whichever column exists)
     if (action === 'adjust-balance') {
       const { user_id, wallet_type, direction, amount, reason } = req.body || {};
       const numAmt = parseFloat(amount);
@@ -181,23 +178,37 @@ export default async function handler(req, res) {
       if (!targetUser) return res.status(404).json({ error: 'Target user does not exist.' });
 
       const isDeposit = wallet_type === 'deposit';
-      const currentBal = isDeposit ? Number(targetUser.deposit_balance || 0) : Number(targetUser.withdrawable_balance || 0);
-      const newBal = direction === 'add' ? currentBal + numAmt : Math.max(0, currentBal - numAmt);
 
       if (isDeposit) {
-        await sql`UPDATE users SET deposit_balance = ${newBal} WHERE id = ${user_id}`;
+        // Detect whether table uses 'balance' or 'deposit_balance'
+        const currentBal = getDepositBal(targetUser);
+        const newBal = direction === 'add' ? currentBal + numAmt : Math.max(0, currentBal - numAmt);
+
+        if (targetUser.deposit_balance !== undefined) {
+          await sql`UPDATE users SET deposit_balance = ${newBal} WHERE id = ${user_id}`;
+        } else if (targetUser.balance !== undefined) {
+          await sql`UPDATE users SET balance = ${newBal} WHERE id = ${user_id}`;
+        } else if (targetUser.recharge_balance !== undefined) {
+          await sql`UPDATE users SET recharge_balance = ${newBal} WHERE id = ${user_id}`;
+        } else {
+          await sql`UPDATE users SET wallet_balance = ${newBal} WHERE id = ${user_id}`;
+        }
+
+        return res.status(200).json({ success: true, message: `Deposit balance updated to ₦${newBal.toLocaleString('en-US')}` });
       } else {
-        await sql`UPDATE users SET withdrawable_balance = ${newBal} WHERE id = ${user_id}`;
+        const currentBal = getWithdrawBal(targetUser);
+        const newBal = direction === 'add' ? currentBal + numAmt : Math.max(0, currentBal - numAmt);
+
+        if (targetUser.withdrawable_balance !== undefined) {
+          await sql`UPDATE users SET withdrawable_balance = ${newBal} WHERE id = ${user_id}`;
+        } else if (targetUser.withdrawal_balance !== undefined) {
+          await sql`UPDATE users SET withdrawal_balance = ${newBal} WHERE id = ${user_id}`;
+        } else {
+          await sql`UPDATE users SET income_balance = ${newBal} WHERE id = ${user_id}`;
+        }
+
+        return res.status(200).json({ success: true, message: `Withdrawal balance updated to ₦${newBal.toLocaleString('en-US')}` });
       }
-
-      try {
-        await sql`
-          INSERT INTO wallet_transactions (user_id, wallet_type, direction, amount, balance_before, balance_after, reference, reason)
-          VALUES (${user_id}, ${wallet_type}, ${direction === 'add' ? 'in' : 'out'}, ${numAmt}, ${currentBal}, ${newBal}, ${'ADMIN-ADJ-' + Date.now()}, ${reason || 'Manual Admin Balance Adjustment'})
-        `;
-      } catch (e) {}
-
-      return res.status(200).json({ success: true, message: `Balance updated to ₦${newBal.toLocaleString('en-US')}` });
     }
 
     if (action === 'reset-password') {
@@ -277,7 +288,7 @@ export default async function handler(req, res) {
     }
 
     // -------------------------------------------------------------
-    // 4. DEPOSITS (NO SCHEMA CRASHES)
+    // 4. DEPOSITS
     // -------------------------------------------------------------
     if (action === 'deposits') {
       const [rawDeposits, allUsers] = await Promise.all([
@@ -315,15 +326,18 @@ export default async function handler(req, res) {
       if (isApproval) {
         const [user] = await sql`SELECT * FROM users WHERE id = ${dep.user_id} FOR UPDATE`;
         if (user) {
-          const oldBal = Number(user.deposit_balance || 0);
+          const oldBal = getDepositBal(user);
           const newBal = oldBal + Number(dep.amount);
-          const newTotalDep = Number(user.total_deposited || 0) + Number(dep.amount);
 
-          await sql`
-            UPDATE users 
-            SET deposit_balance = ${newBal}, total_deposited = ${newTotalDep} 
-            WHERE id = ${dep.user_id}
-          `;
+          if (user.deposit_balance !== undefined) {
+            await sql`UPDATE users SET deposit_balance = ${newBal} WHERE id = ${dep.user_id}`;
+          } else if (user.balance !== undefined) {
+            await sql`UPDATE users SET balance = ${newBal} WHERE id = ${dep.user_id}`;
+          } else if (user.recharge_balance !== undefined) {
+            await sql`UPDATE users SET recharge_balance = ${newBal} WHERE id = ${dep.user_id}`;
+          } else {
+            await sql`UPDATE users SET wallet_balance = ${newBal} WHERE id = ${dep.user_id}`;
+          }
         }
       }
 
@@ -338,7 +352,7 @@ export default async function handler(req, res) {
     }
 
     // -------------------------------------------------------------
-    // 5. WITHDRAWALS (NO SCHEMA CRASHES)
+    // 5. WITHDRAWALS
     // -------------------------------------------------------------
     if (action === 'withdrawals') {
       const [rawWithdrawals, allUsers] = await Promise.all([
@@ -375,16 +389,17 @@ export default async function handler(req, res) {
       if (!isApproval) {
         const [user] = await sql`SELECT * FROM users WHERE id = ${withd.user_id} FOR UPDATE`;
         if (user) {
-          const oldBal = Number(user.withdrawable_balance || 0);
+          const oldBal = getWithdrawBal(user);
           const newBal = oldBal + Number(withd.amount);
-          await sql`UPDATE users SET withdrawable_balance = ${newBal} WHERE id = ${withd.user_id}`;
+
+          if (user.withdrawable_balance !== undefined) {
+            await sql`UPDATE users SET withdrawable_balance = ${newBal} WHERE id = ${withd.user_id}`;
+          } else if (user.withdrawal_balance !== undefined) {
+            await sql`UPDATE users SET withdrawal_balance = ${newBal} WHERE id = ${withd.user_id}`;
+          } else {
+            await sql`UPDATE users SET income_balance = ${newBal} WHERE id = ${withd.user_id}`;
+          }
         }
-      } else {
-        await sql`
-          UPDATE users 
-          SET total_withdrawn = COALESCE(total_withdrawn, 0) + ${withd.amount} 
-          WHERE id = ${withd.user_id}
-        `;
       }
 
       const targetStatus = isApproval ? 'approved' : 'declined';
