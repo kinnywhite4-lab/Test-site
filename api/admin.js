@@ -1,63 +1,67 @@
-import { createClient } from '@supabase/supabase-js';
+import { neon } from '@neondatabase/serverless';
 
-const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseKey);
-
-function parseCookies(req) {
-  const list = {};
-  const rc = req.headers.cookie;
-  if (rc) {
-    rc.split(';').forEach(cookie => {
-      const parts = cookie.split('=');
-      list[parts.shift().trim()] = decodeURI(parts.join('='));
-    });
-  }
-  return list;
+function getDb() {
+  const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+  if (!dbUrl) throw new Error('DATABASE_URL environment variable is missing.');
+  return neon(dbUrl);
 }
 
 export default async function handler(req, res) {
-  // CORS configuration
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-admin-key');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
-  const { action, id, type } = req.query;
+  const { action } = req.query;
 
   try {
-    // -------------------------------------------------------------
-    // 1. DASHBOARD OVERVIEW METRICS
-    // -------------------------------------------------------------
-    if (action === 'dashboard' || action === 'stats') {
-      const { data: users, error: uErr } = await supabase.from('users').select('id, deposit_balance, withdrawable_balance');
-      const { data: deposits, error: dErr } = await supabase.from('deposits').select('amount, status');
-      const { data: withdrawals, error: wErr } = await supabase.from('withdrawals').select('amount, status');
+    const sql = getDb();
 
-      if (uErr) throw uErr;
+    // -------------------------------------------------------------
+    // 1. DASHBOARD METRICS
+    // -------------------------------------------------------------
+    if (action === 'dashboard') {
+      const [uCount] = await sql`SELECT count(*)::int as count FROM users`;
+      const [uBal] = await sql`SELECT COALESCE(sum(deposit_balance + withdrawable_balance), 0)::numeric as total FROM users`;
+      
+      const [depSuccess] = await sql`SELECT count(*)::int as count, COALESCE(sum(amount), 0)::numeric as total FROM deposits WHERE lower(status) = 'approved'`;
+      const [depPending] = await sql`SELECT count(*)::int as count, COALESCE(sum(amount), 0)::numeric as total FROM deposits WHERE lower(status) = 'pending'`;
 
-      const totalUsers = users ? users.length : 0;
-      const totalDeposits = (deposits || [])
-        .filter(d => d.status === 'approved')
-        .reduce((sum, d) => sum + Number(d.amount || 0), 0);
-      const totalWithdrawals = (withdrawals || [])
-        .filter(w => w.status === 'approved')
-        .reduce((sum, w) => sum + Number(w.amount || 0), 0);
-      const pendingDeposits = (deposits || []).filter(d => d.status === 'pending').length;
-      const pendingWithdrawals = (withdrawals || []).filter(w => w.status === 'pending').length;
+      const [withSuccess] = await sql`SELECT count(*)::int as count, COALESCE(sum(amount), 0)::numeric as total FROM withdrawals WHERE lower(status) = 'approved'`;
+      const [withPending] = await sql`SELECT count(*)::int as count, COALESCE(sum(amount), 0)::numeric as total FROM withdrawals WHERE lower(status) = 'pending'`;
+
+      const [invStats] = await sql`
+        SELECT count(*)::int as count, COALESCE(sum(price), 0)::numeric as total 
+        FROM user_products 
+        WHERE lower(status) = 'active'
+      `.catch(async () => {
+        return (await sql`SELECT count(*)::int as count, COALESCE(sum(amount_paid), 0)::numeric as total FROM user_investments WHERE lower(status) = 'active'`)[0] || { count: 0, total: 0 };
+      });
+
+      const totalInvestment = Number(invStats?.total || 0);
+      const totalPayouts = Number(depSuccess?.total || 0);
+      const platformProfit = totalInvestment - Number(withSuccess?.total || 0);
 
       return res.status(200).json({
         success: true,
         stats: {
-          totalUsers,
-          totalDeposits,
-          totalWithdrawals,
-          pendingDeposits,
-          pendingWithdrawals
+          total_users: Number(uCount?.count || 0),
+          total_balance: Number(uBal?.total || 0),
+          total_deposits: Number(depSuccess?.total || 0),
+          deposits_count: Number(depSuccess?.count || 0),
+          total_investment: totalInvestment,
+          investment_count: Number(invStats?.count || 0),
+          total_payouts: Number(withSuccess?.total || 0),
+          payouts_count: Number(withSuccess?.count || 0),
+          platform_profit: platformProfit,
+          pending_withdrawals: Number(withPending?.total || 0),
+          pending_withdrawals_count: Number(withPending?.count || 0),
+          pending_deposits: Number(depPending?.total || 0),
+          pending_deposits_count: Number(depPending?.count || 0)
         }
       });
     }
@@ -66,194 +70,281 @@ export default async function handler(req, res) {
     // 2. USERS MANAGEMENT
     // -------------------------------------------------------------
     if (action === 'users') {
-      const { data: users, error } = await supabase
-        .from('users')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      return res.status(200).json({ success: true, users: users || [] });
+      const users = await sql`
+        SELECT 
+          id, 
+          COALESCE(phone, phone_number) as phone_number,
+          referral_code, 
+          COALESCE(deposit_balance, 0)::numeric as deposit_balance, 
+          COALESCE(withdrawable_balance, 0)::numeric as withdrawable_balance,
+          COALESCE(is_banned, false) as is_banned
+        FROM users 
+        ORDER BY id DESC
+      `;
+      return res.status(200).json({ success: true, users });
     }
 
-    // Update user balance directly
-    if (action === 'update_user_balance') {
-      const { userId, deposit_balance, withdrawable_balance } = req.body || {};
-      if (!userId) return res.status(400).json({ success: false, message: 'Missing userId' });
+    if (action === 'user-detail') {
+      const { user_id } = req.query;
+      const [user] = await sql`
+        SELECT 
+          id, 
+          COALESCE(phone, phone_number) as phone_number,
+          referral_code,
+          COALESCE(deposit_balance, 0)::numeric as deposit_balance,
+          COALESCE(withdrawable_balance, 0)::numeric as withdrawable_balance,
+          COALESCE(total_deposited, 0)::numeric as total_deposited,
+          COALESCE(total_withdrawn, 0)::numeric as total_withdrawn,
+          COALESCE(is_banned, false) as is_banned
+        FROM users WHERE id = ${user_id}
+      `;
 
-      const updates = {};
-      if (deposit_balance !== undefined) updates.deposit_balance = Number(deposit_balance);
-      if (withdrawable_balance !== undefined) updates.withdrawable_balance = Number(withdrawable_balance);
+      if (!user) return res.status(404).json({ error: 'User not found' });
 
-      const { error } = await supabase.from('users').update(updates).eq('id', userId);
-      if (error) throw error;
-      return res.status(200).json({ success: true, message: 'Balance updated successfully' });
+      const deposits = await sql`SELECT * FROM deposits WHERE user_id = ${user_id} ORDER BY id DESC LIMIT 10`;
+      const withdrawals = await sql`SELECT * FROM withdrawals WHERE user_id = ${user_id} ORDER BY id DESC LIMIT 10`;
+      
+      let purchases = [];
+      try {
+        purchases = await sql`SELECT * FROM user_products WHERE user_id = ${user_id} ORDER BY id DESC LIMIT 10`;
+      } catch (e) {
+        purchases = await sql`SELECT * FROM user_investments WHERE user_id = ${user_id} ORDER BY id DESC LIMIT 10`.catch(() => []);
+      }
+
+      return res.status(200).json({ success: true, user, deposits, withdrawals, purchases });
     }
 
-    // Impersonate investor account
+    if (action === 'adjust-balance') {
+      const { user_id, wallet_type, direction, amount } = req.body || {};
+      const numAmt = parseFloat(amount);
+      if (isNaN(numAmt) || numAmt <= 0) return res.status(400).json({ error: 'Invalid amount.' });
+
+      const col = wallet_type === 'deposit' ? 'deposit_balance' : 'withdrawable_balance';
+      if (direction === 'add') {
+        if (col === 'deposit_balance') {
+          await sql`UPDATE users SET deposit_balance = deposit_balance + ${numAmt} WHERE id = ${user_id}`;
+        } else {
+          await sql`UPDATE users SET withdrawable_balance = withdrawable_balance + ${numAmt} WHERE id = ${user_id}`;
+        }
+      } else {
+        if (col === 'deposit_balance') {
+          await sql`UPDATE users SET deposit_balance = GREATEST(0, deposit_balance - ${numAmt}) WHERE id = ${user_id}`;
+        } else {
+          await sql`UPDATE users SET withdrawable_balance = GREATEST(0, withdrawable_balance - ${numAmt}) WHERE id = ${user_id}`;
+        }
+      }
+      return res.status(200).json({ success: true, message: 'Balance adjusted successfully' });
+    }
+
+    if (action === 'reset-password') {
+      const { user_id } = req.body || {};
+      await sql`UPDATE users SET password = '1234' WHERE id = ${user_id}`;
+      return res.status(200).json({ success: true, message: 'Password reset to 1234' });
+    }
+
+    if (action === 'toggle-ban') {
+      const { user_id } = req.body || {};
+      await sql`UPDATE users SET is_banned = NOT COALESCE(is_banned, false) WHERE id = ${user_id}`;
+      return res.status(200).json({ success: true, message: 'Ban status toggled' });
+    }
+
+    if (action === 'delete-user') {
+      const { user_id } = req.body || {};
+      await sql`DELETE FROM users WHERE id = ${user_id}`;
+      return res.status(200).json({ success: true, message: 'User deleted' });
+    }
+
     if (action === 'impersonate') {
-      const { userId } = req.body || {};
-      if (!userId) return res.status(400).json({ success: false, message: 'User ID is required' });
-
-      const { data: user, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', userId)
-        .single();
-
-      if (error || !user) return res.status(404).json({ success: false, message: 'User not found' });
-
-      res.setHeader('Set-Cookie', `novavest_session=${user.id}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`);
-      return res.status(200).json({ success: true, user });
+      const { user_id } = req.body || {};
+      res.setHeader('Set-Cookie', `novavest_session=${user_id}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`);
+      return res.status(200).json({ success: true, token: String(user_id) });
     }
 
     // -------------------------------------------------------------
-    // 3. DEPOSIT REQUESTS & APPROVALS
+    // 3. INVESTMENTS LIST & DELETION
+    // -------------------------------------------------------------
+    if (action === 'investments') {
+      try {
+        const investments = await sql`
+          SELECT 
+            up.id,
+            p.name as product_name,
+            p.price,
+            COALESCE(u.phone, u.phone_number) as phone_number,
+            p.price as amount_paid,
+            (p.daily_yield * p.duration_days) as total_revenue,
+            COALESCE(up.status, 'Active') as status,
+            up.created_at,
+            (up.created_at + interval '1 day') as next_drop_time
+          FROM user_products up
+          LEFT JOIN products p ON up.product_id = p.id
+          LEFT JOIN users u ON up.user_id = u.id
+          ORDER BY up.id DESC
+        `;
+        return res.status(200).json({ success: true, investments });
+      } catch (e) {
+        const investments = await sql`
+          SELECT ui.*, COALESCE(u.phone, u.phone_number) as phone_number 
+          FROM user_investments ui 
+          LEFT JOIN users u ON ui.user_id = u.id 
+          ORDER BY ui.id DESC
+        `.catch(() => []);
+        return res.status(200).json({ success: true, investments });
+      }
+    }
+
+    if (action === 'delete-investment') {
+      const { investment_id } = req.body || {};
+      try {
+        await sql`DELETE FROM user_products WHERE id = ${investment_id}`;
+      } catch (e) {
+        await sql`DELETE FROM user_investments WHERE id = ${investment_id}`;
+      }
+      return res.status(200).json({ success: true, message: 'Investment deleted' });
+    }
+
+    // -------------------------------------------------------------
+    // 4. DEPOSITS
     // -------------------------------------------------------------
     if (action === 'deposits') {
-      const { data: deposits, error } = await supabase
-        .from('deposits')
-        .select('*, users(phone)')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      return res.status(200).json({ success: true, deposits: deposits || [] });
+      const deposits = await sql`
+        SELECT 
+          d.id,
+          COALESCE(d.reference, concat('DEP-', d.id)) as reference,
+          COALESCE(d.channel_name, 'Manual Transfer') as channel_name,
+          d.amount,
+          COALESCE(d.sender_name, 'N/A') as sender_name,
+          COALESCE(u.phone, u.phone_number) as phone_number,
+          d.created_at,
+          COALESCE(d.proof_url, d.receipt_url) as proof_url,
+          INITCAP(d.status) as status
+        FROM deposits d
+        LEFT JOIN users u ON d.user_id = u.id
+        ORDER BY d.id DESC
+      `;
+      return res.status(200).json({ success: true, deposits });
     }
 
-    if (action === 'approve_deposit') {
-      const { depositId } = req.body || {};
-      if (!depositId) return res.status(400).json({ success: false, message: 'Missing depositId' });
+    if (action === 'review-deposit') {
+      const { deposit_id, decision } = req.body || {};
+      const status = decision === 'approve' ? 'approved' : 'declined';
+      
+      const [dep] = await sql`SELECT * FROM deposits WHERE id = ${deposit_id}`;
+      if (!dep) return res.status(404).json({ error: 'Deposit record not found' });
 
-      const { data: deposit, error: depErr } = await supabase
-        .from('deposits')
-        .select('*')
-        .eq('id', depositId)
-        .single();
+      if (decision === 'approve' && String(dep.status).toLowerCase() !== 'approved') {
+        await sql`UPDATE users SET deposit_balance = deposit_balance + ${dep.amount} WHERE id = ${dep.user_id}`;
+      }
 
-      if (depErr || !deposit) return res.status(404).json({ success: false, message: 'Deposit not found' });
-      if (deposit.status !== 'pending') return res.status(400).json({ success: false, message: 'Deposit is not pending' });
-
-      // Add to user deposit balance
-      const { data: user, error: uErr } = await supabase
-        .from('users')
-        .select('deposit_balance')
-        .eq('id', deposit.user_id)
-        .single();
-
-      if (uErr || !user) throw new Error('User not found');
-
-      const newBal = Number(user.deposit_balance || 0) + Number(deposit.amount);
-
-      await supabase.from('users').update({ deposit_balance: newBal }).eq('id', deposit.user_id);
-      await supabase.from('deposits').update({ status: 'approved' }).eq('id', depositId);
-
-      return res.status(200).json({ success: true, message: 'Deposit approved' });
-    }
-
-    if (action === 'decline_deposit') {
-      const { depositId } = req.body || {};
-      if (!depositId) return res.status(400).json({ success: false, message: 'Missing depositId' });
-
-      await supabase.from('deposits').update({ status: 'declined' }).eq('id', depositId);
-      return res.status(200).json({ success: true, message: 'Deposit declined' });
+      await sql`UPDATE deposits SET status = ${status} WHERE id = ${deposit_id}`;
+      return res.status(200).json({ success: true, message: `Deposit ${status}` });
     }
 
     // -------------------------------------------------------------
-    // 4. WITHDRAWAL REQUESTS & REVIEWS
+    // 5. WITHDRAWALS
     // -------------------------------------------------------------
     if (action === 'withdrawals') {
-      const { data: withdrawals, error } = await supabase
-        .from('withdrawals')
-        .select('*, users(phone)')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      return res.status(200).json({ success: true, withdrawals: withdrawals || [] });
+      const withdrawals = await sql`
+        SELECT 
+          w.id,
+          COALESCE(w.bank_name, 'Linked Bank') as bank_name,
+          w.amount,
+          COALESCE(w.net_amount, w.amount) as net_amount,
+          COALESCE(w.account_name, 'User') as account_name,
+          COALESCE(w.account_number, '---') as account_number,
+          COALESCE(u.phone, u.phone_number) as phone_number,
+          INITCAP(w.status) as status
+        FROM withdrawals w
+        LEFT JOIN users u ON w.user_id = u.id
+        ORDER BY w.id DESC
+      `;
+      return res.status(200).json({ success: true, withdrawals });
     }
 
-    if (action === 'approve_withdrawal') {
-      const { withdrawalId } = req.body || {};
-      if (!withdrawalId) return res.status(400).json({ success: false, message: 'Missing withdrawalId' });
+    if (action === 'review-withdrawal') {
+      const { withdrawal_id, decision } = req.body || {};
+      const status = decision === 'approve' ? 'approved' : 'declined';
 
-      const { data: withdrawal, error: wErr } = await supabase
-        .from('withdrawals')
-        .select('*')
-        .eq('id', withdrawalId)
-        .single();
+      const [withd] = await sql`SELECT * FROM withdrawals WHERE id = ${withdrawal_id}`;
+      if (!withd) return res.status(404).json({ error: 'Withdrawal not found' });
 
-      if (wErr || !withdrawal) return res.status(404).json({ success: false, message: 'Withdrawal not found' });
-
-      await supabase.from('withdrawals').update({ status: 'approved' }).eq('id', withdrawalId);
-      return res.status(200).json({ success: true, message: 'Withdrawal approved' });
-    }
-
-    if (action === 'decline_withdrawal') {
-      const { withdrawalId } = req.body || {};
-      if (!withdrawalId) return res.status(400).json({ success: false, message: 'Missing withdrawalId' });
-
-      const { data: withdrawal, error: wErr } = await supabase
-        .from('withdrawals')
-        .select('*')
-        .eq('id', withdrawalId)
-        .single();
-
-      if (wErr || !withdrawal) return res.status(404).json({ success: false, message: 'Withdrawal not found' });
-
-      // Refund the amount back to user's withdrawable balance
-      const { data: user } = await supabase
-        .from('users')
-        .select('withdrawable_balance')
-        .eq('id', withdrawal.user_id)
-        .single();
-
-      if (user) {
-        const refunded = Number(user.withdrawable_balance || 0) + Number(withdrawal.amount);
-        await supabase.from('users').update({ withdrawable_balance: refunded }).eq('id', withdrawal.user_id);
+      if (decision === 'decline' && String(withd.status).toLowerCase() !== 'declined') {
+        await sql`UPDATE users SET withdrawable_balance = withdrawable_balance + ${withd.amount} WHERE id = ${withd.user_id}`;
       }
 
-      await supabase.from('withdrawals').update({ status: 'declined' }).eq('id', withdrawalId);
-      return res.status(200).json({ success: true, message: 'Withdrawal declined and refunded' });
+      await sql`UPDATE withdrawals SET status = ${status} WHERE id = ${withdrawal_id}`;
+      return res.status(200).json({ success: true, message: `Withdrawal ${status}` });
     }
 
     // -------------------------------------------------------------
-    // 5. PAYMENT CHANNELS MANAGEMENT
+    // 6. PRODUCTS MANAGEMENT
     // -------------------------------------------------------------
-    if (action === 'channels') {
-      const { data: channels, error } = await supabase
-        .from('deposit_channels')
-        .select('*')
-        .order('created_at', { ascending: true });
-
-      if (error) throw error;
-      return res.status(200).json({ success: true, channels: channels || [] });
+    if (action === 'products') {
+      const products = await sql`
+        SELECT 
+          id, 
+          name, 
+          price, 
+          COALESCE(daily_yield, daily_income, 0) as daily_income, 
+          COALESCE(duration_days, period_days, 30) as period_days,
+          (COALESCE(daily_yield, daily_income, 0) * COALESCE(duration_days, period_days, 30)) as total_revenue
+        FROM products 
+        ORDER BY price ASC
+      `;
+      return res.status(200).json({ success: true, products });
     }
 
-    if (action === 'save_channel') {
-      const { id: channelId, channel_name, bank_name, account_number, account_name, instructions } = req.body || {};
+    if (action === 'update-product') {
+      const { id, price, daily_income, period_days } = req.body || {};
+      await sql`
+        UPDATE products 
+        SET 
+          price = ${price}, 
+          daily_yield = ${daily_income}, 
+          duration_days = ${period_days} 
+        WHERE id = ${id}
+      `;
+      return res.status(200).json({ success: true, message: 'Product updated' });
+    }
+
+    // -------------------------------------------------------------
+    // 7. SETTINGS & SYSTEM CONTROLS
+    // -------------------------------------------------------------
+    if (action === 'settings') {
+      if (req.method === 'POST') {
+        const updates = req.body || {};
+        for (const [k, v] of Object.entries(updates)) {
+          await sql`
+            INSERT INTO settings (key, value) VALUES (${k}, ${String(v)})
+            ON CONFLICT (key) DO UPDATE SET value = ${String(v)}
+          `;
+        }
+        return res.status(200).json({ success: true, message: 'Settings saved' });
+      }
+
+      const rows = await sql`SELECT key, value FROM settings`;
+      const settings = {};
+      rows.forEach(r => { settings[r.key] = r.value; });
+      return res.status(200).json({ success: true, settings });
+    }
+
+    // -------------------------------------------------------------
+    // 8. GIFT CODES
+    // -------------------------------------------------------------
+    if (action === 'generate-gift-code') {
+      const { amount, max_claims } = req.body || {};
+      const randomCode = 'NV-' + Math.random().toString(36).substring(2, 8).toUpperCase();
       
-      if (channelId) {
-        await supabase.from('deposit_channels').update({
-          channel_name,
-          bank_name,
-          account_number,
-          account_name,
-          instructions
-        }).eq('id', channelId);
-      } else {
-        await supabase.from('deposit_channels').insert([{
-          channel_name,
-          bank_name,
-          account_number,
-          account_name,
-          instructions
-        }]);
-      }
-      return res.status(200).json({ success: true, message: 'Channel saved' });
+      await sql`
+        INSERT INTO gift_codes (code, amount, max_claims, claimed_count) 
+        VALUES (${randomCode}, ${amount}, ${max_claims || 50}, 0)
+      `;
+      return res.status(200).json({ success: true, code: randomCode });
     }
 
-    // Fallback for unhandled action
-    return res.status(400).json({ success: false, message: 'Invalid or missing action parameter' });
+    return res.status(400).json({ error: 'Unknown action parameter' });
 
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message || 'Internal server error' });
+    return res.status(500).json({ error: error.message || 'Internal server error' });
   }
 }
