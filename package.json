@@ -2,7 +2,7 @@
   "name": "novavest",
   "version": "1.0.0",
   "private": true,
-  "type": "commonjs",
+  "type": "module",
   "dependencies": {
     "pg": "^8.11.3"
   }
