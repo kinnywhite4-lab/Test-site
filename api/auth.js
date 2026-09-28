@@ -60,6 +60,7 @@ export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json');
   const action = req.query.action || (req.body && req.body.action);
 
+  // 1. REGISTER
   if (action === 'register' && req.method === 'POST') {
     const { phone_number, password, confirm_password, ref } = req.body || {};
     const cleanNumber = cleanPhoneNumber(phone_number);
@@ -91,7 +92,6 @@ export default async function handler(req, res) {
       const refCode = 'NV' + crypto.randomBytes(3).toString('hex').toUpperCase();
       const pwdHash = hashPassword(password);
 
-      // Welcome bonus setting check
       let welcomeBonus = 0;
       try {
         const bonusRow = await sql`SELECT val FROM platform_settings WHERE id = 'welcome_bonus'`;
@@ -122,6 +122,7 @@ export default async function handler(req, res) {
     }
   }
 
+  // 2. LOGIN
   if (action === 'login' && req.method === 'POST') {
     const { phone_number, password } = req.body || {};
     const cleanNumber = cleanPhoneNumber(phone_number);
@@ -159,16 +160,21 @@ export default async function handler(req, res) {
     }
   }
 
+  // 3. LOGOUT (Hard evict cookies across all environments)
   if (action === 'logout') {
-    res.setHeader('Set-Cookie', 'novavest_session=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax; Secure');
-    return res.status(200).json({ success: true });
+    res.setHeader('Set-Cookie', [
+      'novavest_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; HttpOnly; SameSite=Lax; Secure',
+      'novavest_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; HttpOnly; SameSite=Lax'
+    ]);
+    return res.status(200).json({ success: true, message: 'Logged out successfully.' });
   }
 
+  // 4. CURRENT USER CHECK
   if (action === 'me') {
     try {
       const cookies = parseCookies(req);
       const authHeader = req.headers && req.headers.authorization;
-      const token = cookies.novavest_session || (authHeader && authHeader.replace('Bearer ', ''));
+      const token = (authHeader && authHeader.replace('Bearer ', '')) || cookies.novavest_session;
       const userId = verifySessionToken(token);
       if (!userId) return res.status(401).json({ error: 'Please log in to continue.' });
 
