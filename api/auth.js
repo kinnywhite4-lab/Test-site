@@ -2,7 +2,6 @@ import { neon } from '@neondatabase/serverless';
 import crypto from 'crypto';
 
 const sql = neon(process.env.DATABASE_URL);
-
 const SESSION_SECRET = process.env.SESSION_SECRET || 'novavest_secure_session_secret_2026';
 
 function hashPassword(password) {
@@ -82,21 +81,38 @@ export default async function handler(req, res) {
       }
 
       let referredById = null;
-      if (ref && typeof ref === 'string') {
-        const refUser = await sql`SELECT id FROM users WHERE referral_code = ${ref.trim()}`;
-        if (refUser.length > 0) referredById = refUser[0].id;
+      if (ref && typeof ref === 'string' && ref.trim()) {
+        const refUser = await sql`SELECT id FROM users WHERE referral_code = ${ref.trim().toUpperCase()}`;
+        if (refUser.length > 0) {
+          referredById = refUser[0].id;
+        }
       }
 
       const refCode = 'NV' + crypto.randomBytes(3).toString('hex').toUpperCase();
       const pwdHash = hashPassword(password);
 
+      // Welcome bonus setting check
+      let welcomeBonus = 0;
+      try {
+        const bonusRow = await sql`SELECT val FROM platform_settings WHERE id = 'welcome_bonus'`;
+        if (bonusRow.length) welcomeBonus = parseFloat(bonusRow[0].val) || 0;
+      } catch {}
+
       const rows = await sql`
-        INSERT INTO users (phone_number, password_hash, referral_code, referred_by)
-        VALUES (${cleanNumber}, ${pwdHash}, ${refCode}, ${referredById})
+        INSERT INTO users (phone_number, password_hash, referral_code, referred_by, withdrawable_balance, total_income)
+        VALUES (${cleanNumber}, ${pwdHash}, ${refCode}, ${referredById}, ${welcomeBonus}, ${welcomeBonus})
         RETURNING id, phone_number, referral_code, balance, withdrawable_balance, total_income, total_withdrawn
       `;
 
       const user = rows[0];
+
+      if (welcomeBonus > 0) {
+        await sql`
+          INSERT INTO transactions (user_id, type, title, amount, direction, created_at)
+          VALUES (${user.id}, 'Bonus', 'Welcome Bonus', ${welcomeBonus}, 'in', CURRENT_TIMESTAMP)
+        `;
+      }
+
       const token = createSessionToken(user.id);
       res.setHeader('Set-Cookie', `novavest_session=${token}; HttpOnly; Path=/; Max-Age=2592000; SameSite=Lax; Secure`);
       return res.status(200).json({ success: true, token, user });
@@ -116,7 +132,7 @@ export default async function handler(req, res) {
 
     try {
       const rows = await sql`
-        SELECT id, phone_number, password_hash, referral_code, balance, withdrawable_balance, total_income, total_withdrawn 
+        SELECT id, phone_number, password_hash, referral_code, balance, withdrawable_balance, total_income, total_withdrawn, is_banned 
         FROM users WHERE phone_number = ${cleanNumber}
       `;
 
@@ -125,6 +141,10 @@ export default async function handler(req, res) {
       }
 
       const user = rows[0];
+      if (user.is_banned) {
+        return res.status(403).json({ error: 'This account has been suspended. Please contact support.' });
+      }
+
       if (!verifyPassword(password, user.password_hash)) {
         return res.status(400).json({ error: 'Incorrect phone number or password.' });
       }
@@ -135,7 +155,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true, token, user });
     } catch (err) {
       console.error('Login Error:', err);
-      return res.status(500).json({ error: err.message || 'Database error during login.' });
+      return res.status(500).json({ error: 'Database error during login.' });
     }
   }
 
@@ -150,17 +170,13 @@ export default async function handler(req, res) {
       const authHeader = req.headers && req.headers.authorization;
       const token = cookies.novavest_session || (authHeader && authHeader.replace('Bearer ', ''));
       const userId = verifySessionToken(token);
-      if (!userId) {
-        return res.status(401).json({ error: 'Please log in to continue.' });
-      }
+      if (!userId) return res.status(401).json({ error: 'Please log in to continue.' });
 
       const rows = await sql`
         SELECT id, phone_number, balance, withdrawable_balance, total_income, total_withdrawn, referral_code, referred_by 
         FROM users WHERE id = ${userId}
       `;
-      if (!rows.length) {
-        return res.status(401).json({ error: 'Please log in to continue.' });
-      }
+      if (!rows.length) return res.status(401).json({ error: 'Please log in to continue.' });
       return res.status(200).json({ success: true, user: rows[0] });
     } catch {
       return res.status(401).json({ error: 'Session expired. Please log in.' });
