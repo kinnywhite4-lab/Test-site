@@ -6,6 +6,163 @@
   <title>NovaVest</title>
   <link rel="stylesheet" href="style.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <style>
+    /* DIRECT EMBEDDED STYLES FOR TEAM CARDS & INVITE PAGE */
+    .team-cards-grid {
+      display: grid !important;
+      grid-template-columns: 1fr 1fr !important;
+      gap: 12px !important;
+      margin-bottom: 20px !important;
+    }
+    .team-summary-card {
+      background: #1e293b !important;
+      border: 2px solid #334155 !important;
+      border-radius: 14px !important;
+      padding: 16px 12px !important;
+      cursor: pointer !important;
+      transition: all 0.2s !important;
+    }
+    .team-summary-card.active {
+      border-color: #10b981 !important;
+      box-shadow: 0 4px 14px rgba(16, 185, 129, 0.2) !important;
+      transform: translateY(-2px) !important;
+    }
+    .team-card-header {
+      display: flex !important;
+      justify-content: space-between !important;
+      align-items: center !important;
+      margin-bottom: 8px !important;
+    }
+    .tier-pill {
+      background: #0284c7 !important;
+      color: #fff !important;
+      font-size: 10px !important;
+      font-weight: 800 !important;
+      padding: 2px 8px !important;
+      border-radius: 4px !important;
+    }
+    .team-card-title {
+      font-size: 14px !important;
+      font-weight: 800 !important;
+      color: #f8fafc !important;
+      margin-bottom: 10px !important;
+    }
+    .team-card-stat {
+      font-size: 12px !important;
+      display: flex !important;
+      justify-content: space-between !important;
+      margin-bottom: 4px !important;
+    }
+    .team-card-stat .lbl {
+      color: #94a3b8 !important;
+    }
+    .tap-hint {
+      font-size: 10px !important;
+      color: #10b981 !important;
+      margin-top: 10px !important;
+      text-align: center !important;
+      font-weight: 600 !important;
+    }
+    .team-details-panel {
+      background: #1e293b !important;
+      border: 1px solid #334155 !important;
+      border-radius: 14px !important;
+      padding: 16px !important;
+    }
+    .team-panel-header {
+      margin-bottom: 12px !important;
+      padding-bottom: 8px !important;
+      border-bottom: 1px solid #334155 !important;
+    }
+    .team-panel-header h4 {
+      font-size: 14px !important;
+      font-weight: 700 !important;
+      color: #f8fafc !important;
+    }
+    .table-responsive {
+      width: 100% !important;
+      overflow-x: auto !important;
+    }
+    .team-table {
+      width: 100% !important;
+      border-collapse: collapse !important;
+      font-size: 12px !important;
+      text-align: left !important;
+    }
+    .team-table th {
+      padding: 10px 8px !important;
+      border-bottom: 1px solid #334155 !important;
+      color: #94a3b8 !important;
+      font-weight: 600 !important;
+    }
+    .team-table td {
+      padding: 12px 8px !important;
+      border-bottom: 1px solid rgba(255,255,255,0.05) !important;
+    }
+    .invite-banner-card {
+      text-align: center !important;
+      padding: 22px !important;
+      background: linear-gradient(135deg, #1e293b, #0f172a) !important;
+      border-radius: 14px !important;
+      border: 1px solid #475569 !important;
+      margin-bottom: 20px !important;
+    }
+    .invite-icon-anim {
+      font-size: 36px !important;
+      color: #10b981 !important;
+      margin-bottom: 10px !important;
+    }
+    .invite-box-group {
+      margin-bottom: 16px !important;
+    }
+    .invite-box-group label {
+      display: block !important;
+      font-size: 12px !important;
+      color: #94a3b8 !important;
+      margin-bottom: 6px !important;
+      font-weight: 600 !important;
+    }
+    .copy-input-row {
+      display: flex !important;
+      gap: 8px !important;
+    }
+    .copy-input-row input {
+      flex: 1 !important;
+      padding: 10px 12px !important;
+      background: #1e293b !important;
+      border: 1px solid #475569 !important;
+      border-radius: 8px !important;
+      color: #fff !important;
+      font-size: 13px !important;
+      outline: none !important;
+    }
+    .invite-rules-card {
+      background: #1e293b !important;
+      border: 1px solid #334155 !important;
+      border-radius: 14px !important;
+      padding: 16px !important;
+      margin-top: 20px !important;
+    }
+    .invite-rules-card h4 {
+      font-size: 14px !important;
+      margin-bottom: 14px !important;
+      color: #10b981 !important;
+    }
+    .rule-tier-head {
+      display: flex !important;
+      justify-content: space-between !important;
+      align-items: center !important;
+      margin-bottom: 4px !important;
+      font-size: 13px !important;
+    }
+    .rate-badge {
+      background: rgba(16, 185, 129, 0.2) !important;
+      color: #10b981 !important;
+      padding: 2px 8px !important;
+      border-radius: 4px !important;
+      font-weight: 800 !important;
+    }
+  </style>
 </head>
 <body>
 
@@ -124,7 +281,7 @@
         <div class="my-product-list" id="my-product-list"></div>
       </section>
 
-      <!-- 3. DEDICATED INVITE PAGE -->
+      <!-- 3. DEDICATED INVITE PAGE (Home -> Invite) -->
       <section id="view-invite" class="view-section">
         <div class="subpage-header">
           <button class="back-btn" data-back="home"><i class="fa-solid fa-chevron-left"></i></button>
@@ -172,12 +329,13 @@
         </div>
       </section>
 
-      <!-- 4. DEDICATED TEAM PAGE -->
+      <!-- 4. DEDICATED TEAM PAGE (Bottom Nav -> Team) -->
       <section id="view-team" class="view-section">
         <div class="section-title">Referral Team Overview</div>
 
+        <!-- Two Interactive Cards -->
         <div class="team-cards-grid">
-          <div class="team-summary-card" id="card-team-tier-1" onclick="selectTeamTier(1)">
+          <div class="team-summary-card active" id="card-team-tier-1" onclick="selectTeamTier(1)">
             <div class="team-card-header">
               <span class="tier-pill">Tier 1</span>
               <i class="fa-solid fa-users"></i>
@@ -212,6 +370,7 @@
           </div>
         </div>
 
+        <!-- Interactive Members Table -->
         <div class="team-details-panel">
           <div class="team-panel-header">
             <h4 id="team-active-title">First Referral Members History</h4>
@@ -491,7 +650,7 @@
       </section>
     </main>
 
-    <!-- Bottom Navigation Bar -->
+    <!-- Bottom Navigation Bar: Home, Products, Team, Profile -->
     <nav class="bottom-nav">
       <button class="nav-item active" data-view="home">
         <i class="fa-solid fa-house"></i>
