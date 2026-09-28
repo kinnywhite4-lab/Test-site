@@ -9,7 +9,6 @@
 </head>
 <body>
 
-  <!-- Toast Notification -->
   <div id="toast" class="toast"></div>
 
   <!-- AUTH CONTAINER -->
@@ -48,6 +47,10 @@
           <label><i class="fa-solid fa-check-double"></i> Confirm Password</label>
           <input type="password" id="reg-confirm-password" placeholder="Confirm password" required autocomplete="new-password" />
         </div>
+        <div class="form-group">
+          <label><i class="fa-solid fa-user-plus"></i> Referral Code (Optional)</label>
+          <input type="text" id="reg-ref-code" placeholder="Enter invitation code" />
+        </div>
         <button type="submit" class="btn btn-primary btn-block" id="btn-register">Register</button>
         <div class="auth-toggle">
           Already registered? <a href="#" id="link-show-login">Log In</a>
@@ -59,7 +62,7 @@
   <!-- APP CONTAINER -->
   <div id="app-container" class="app-wrapper" style="display: none;">
     <!-- Impersonation Bar -->
-    <div id="impersonation-bar" style="display:none;background:#b91c1c;color:#fff;padding:8px 14px;font-size:12px;font-weight:700;display:flex;justify-content:space-between;align-items:center;z-index:99999;position:sticky;top:0;">
+    <div id="impersonation-bar" style="display:none;background:#b91c1c;color:#fff;padding:8px 14px;font-size:12px;font-weight:700;justify-content:space-between;align-items:center;z-index:99999;position:sticky;top:0;">
       <span><i class="fa-solid fa-user-secret"></i> Viewing account as Administrator</span>
       <button id="btn-return-admin" style="background:#fff;color:#b91c1c;border:none;padding:4px 10px;border-radius:6px;font-weight:800;cursor:pointer;">Return to Admin</button>
     </div>
@@ -74,25 +77,26 @@
       </div>
     </header>
 
-    <!-- Main Content Views -->
     <main class="app-main">
       <!-- 1. HOME VIEW -->
       <section id="view-home" class="view-section active">
-        <div class="balance-card">
-          <div class="balance-label">Available Balance</div>
-          <div class="balance-amount" id="home-balance">₦0.00</div>
-          <div class="balance-meta">
-            <div>
-              <span class="sub-label">Withdrawable Balance</span>
-              <span class="sub-val" id="home-withdrawable">₦0.00</span>
+        <!-- Brand Information Showcase (Carousel) -->
+        <div class="company-carousel">
+          <div class="carousel-slide active">
+            <div class="carousel-content">
+              <h3>NovaVest Green Energy</h3>
+              <p>Next-generation equipment financing and clean utility infrastructure investment.</p>
             </div>
-            <div>
-              <span class="sub-label">Total Income</span>
-              <span class="sub-val" id="home-income">₦0.00</span>
+          </div>
+          <div class="carousel-slide">
+            <div class="carousel-content">
+              <h3>Direct Payout Network</h3>
+              <p>Institutional security with verified Nigerian interbank settlement channels.</p>
             </div>
           </div>
         </div>
 
+        <!-- Main Home Actions -->
         <div class="quick-actions">
           <button class="action-btn" id="btn-nav-recharge">
             <i class="fa-solid fa-wallet"></i>
@@ -102,9 +106,9 @@
             <i class="fa-solid fa-money-bill-transfer"></i>
             <span>Withdraw</span>
           </button>
-          <button class="action-btn" id="btn-nav-bank">
-            <i class="fa-solid fa-building-columns"></i>
-            <span>Bank Card</span>
+          <button class="action-btn" id="btn-nav-invite">
+            <i class="fa-solid fa-user-group"></i>
+            <span>Invite</span>
           </button>
           <button class="action-btn" id="btn-nav-gift">
             <i class="fa-solid fa-gift"></i>
@@ -116,54 +120,111 @@
         <div class="product-list" id="home-product-list"></div>
       </section>
 
-      <!-- 2. PRODUCTS VIEW -->
+      <!-- 2. PRODUCTS VIEW (MY EQUIPMENT WITH DROP COUNTDOWN TIMERS) -->
       <section id="view-products" class="view-section">
-        <div class="section-title">My Equipment</div>
+        <div class="section-title">My Active Equipment</div>
         <div class="my-product-list" id="my-product-list"></div>
       </section>
 
-      <!-- 3. TEAM VIEW -->
+      <!-- 3. TEAM VIEW (TEAM 1 & TEAM 2 SEPARATE AUDITS) -->
       <section id="view-team" class="view-section">
         <div class="team-card">
           <div class="team-label">Your Referral Code</div>
           <div class="referral-box">
             <span id="team-ref-code">------</span>
-            <button class="btn btn-secondary btn-sm" id="btn-copy-code">Copy</button>
+            <button class="btn btn-secondary btn-sm" id="btn-copy-code">Copy Link</button>
           </div>
-          <div class="team-stats">
-            <div class="team-stat-item">
-              <span class="stat-number" id="team-count">0</span>
-              <span class="stat-name">Invited Members</span>
+        </div>
+
+        <!-- Team 1 Card -->
+        <div class="team-tier-card" id="card-team-1">
+          <div class="tier-header">
+            <h4><i class="fa-solid fa-users"></i> Team 1 (Direct Referrals)</h4>
+            <span class="tier-badge">Level 1</span>
+          </div>
+          <div class="tier-stats">
+            <div>
+              <span class="lbl">Members:</span>
+              <strong id="team1-count">0</strong>
+            </div>
+            <div>
+              <span class="lbl">Total Earned:</span>
+              <strong class="text-success" id="team1-income">₦0.00</strong>
+            </div>
+          </div>
+          <div class="tier-members-list" id="team1-list"></div>
+        </div>
+
+        <!-- Team 2 Card -->
+        <div class="team-tier-card" id="card-team-2">
+          <div class="tier-header">
+            <h4><i class="fa-solid fa-network-wired"></i> Team 2 (Indirect Referrals)</h4>
+            <span class="tier-badge">Level 2</span>
+          </div>
+          <div class="tier-stats">
+            <div>
+              <span class="lbl">Members:</span>
+              <strong id="team2-count">0</strong>
+            </div>
+            <div>
+              <span class="lbl">Total Earned:</span>
+              <strong class="text-success" id="team2-income">₦0.00</strong>
+            </div>
+          </div>
+          <div class="tier-members-list" id="team2-list"></div>
+        </div>
+      </section>
+
+      <!-- 4. PROFILE VIEW (BALANCES, ID BADGE, TELEGRAM & SETTINGS) -->
+      <section id="view-profile" class="view-section">
+        <div class="profile-header">
+          <div class="profile-avatar"><i class="fa-solid fa-user-shield"></i></div>
+          <div class="profile-info-wrap">
+            <div class="profile-phone" id="profile-phone">---------</div>
+            <div class="profile-uid-badge">User ID: <span id="profile-uid">---</span></div>
+          </div>
+        </div>
+
+        <!-- Official Balance Summary Section -->
+        <div class="balance-card">
+          <div class="balance-label">Deposit Balance (Remaining Deposit)</div>
+          <div class="balance-amount" id="prof-deposit-bal">₦0.00</div>
+          <div class="balance-meta">
+            <div>
+              <span class="sub-label">Withdrawable Balance</span>
+              <span class="sub-val" id="prof-withdrawable-bal">₦0.00</span>
+            </div>
+            <div>
+              <span class="sub-label">Total Withdrawn</span>
+              <span class="sub-val" id="prof-total-withdrawn">₦0.00</span>
             </div>
           </div>
         </div>
 
-        <div class="section-title">Referred Team Members</div>
-        <div class="team-list" id="team-members-list"></div>
-      </section>
-
-      <!-- 4. PROFILE VIEW -->
-      <section id="view-profile" class="view-section">
-        <div class="profile-header">
-          <div class="profile-avatar"><i class="fa-solid fa-user-shield"></i></div>
-          <div class="profile-phone" id="profile-phone">---------</div>
-        </div>
-
-        <div class="profile-stats-grid">
-          <div class="stat-box">
-            <span class="lbl">Total Income</span>
-            <span class="val" id="prof-income">₦0.00</span>
-          </div>
-          <div class="stat-box">
-            <span class="lbl">Total Withdrawn</span>
-            <span class="val" id="prof-withdrawn">₦0.00</span>
-          </div>
+        <!-- Telegram Support Channels -->
+        <div class="telegram-section">
+          <a href="https://t.me/novavest_group" target="_blank" class="telegram-card" id="link-tg-group">
+            <i class="fa-brands fa-telegram"></i>
+            <div>
+              <strong>Official Telegram Group</strong>
+              <small>Join our investor community</small>
+            </div>
+            <i class="fa-solid fa-arrow-up-right-from-square arrow"></i>
+          </a>
+          <a href="https://t.me/novavest_support" target="_blank" class="telegram-card" id="link-tg-support">
+            <i class="fa-solid fa-headset"></i>
+            <div>
+              <strong>Customer Support</strong>
+              <small>24/7 dedicated assistance</small>
+            </div>
+            <i class="fa-solid fa-arrow-up-right-from-square arrow"></i>
+          </a>
         </div>
 
         <div class="menu-list">
           <div class="menu-item" id="menu-bank-card">
             <i class="fa-solid fa-building-columns"></i>
-            <span>Bank Card Details</span>
+            <span>Bank Account Details</span>
             <i class="fa-solid fa-chevron-right arrow"></i>
           </div>
           <div class="menu-item" id="menu-dep-history">
@@ -228,13 +289,12 @@
 
           <div class="channels-list" id="payment-channels-list"></div>
 
-          <!-- Explicit Proceed Button -->
           <button class="btn btn-primary btn-block confirm-btn" id="btn-proceed-to-payment" style="margin-top: 20px;">
             Continue to Deposit
           </button>
         </div>
 
-        <!-- STAGE 2: PAYMENT DETAILS & SUBMISSION FORM -->
+        <!-- STAGE 2: MANDATORY DEPOSITOR NAME & SCREENSHOT PROOF -->
         <div id="recharge-stage-pay" class="recharge-section" style="display: none;">
           <div class="channel-details-card">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
@@ -263,16 +323,14 @@
             <p class="instructions-note" id="det-instructions"></p>
           </div>
 
-          <!-- Deposit Verification Form -->
           <div class="proof-form-group">
             <label>Depositor / Sender Full Name <span style="color:var(--danger)">*</span></label>
-            <input type="text" id="recharge-sender-name" placeholder="Full name on your bank account" required />
+            <input type="text" id="recharge-sender-name" placeholder="Full name on bank account" required />
           </div>
 
-          <!-- Receipt Screenshot Upload -->
           <div class="proof-form-group">
-            <label>Upload Payment Receipt (Screenshot)</label>
-            <input type="file" id="recharge-receipt-file" accept="image/*" style="padding: 8px;" />
+            <label>Upload Payment Receipt (Screenshot) <span style="color:var(--danger)">*</span></label>
+            <input type="file" id="recharge-receipt-file" accept="image/*" style="padding: 8px;" required />
             <div id="receipt-preview-wrap" style="display:none; margin-top:10px; text-align:center;">
               <img id="receipt-preview-img" src="" alt="Receipt Preview" style="max-width:100%; max-height:180px; border-radius:8px; border:1px solid var(--border-light);" />
             </div>
@@ -281,16 +339,6 @@
           <button class="btn btn-primary btn-block confirm-btn" id="btn-confirm-recharge">
             Submit Deposit for Review
           </button>
-
-          <div class="recharge-instructions">
-            <h5>RECHARGE INSTRUCTIONS</h5>
-            <ol>
-              <li>Copy the bank account details shown above and transfer the exact amount using your mobile banking app or USSD.</li>
-              <li>Ensure the account name matches before confirming payment.</li>
-              <li>Upload a clear screenshot of your transaction receipt and enter your sender name.</li>
-              <li>Your wallet balance will be credited as soon as an administrator verifies the payment.</li>
-            </ol>
-          </div>
         </div>
       </section>
 
@@ -314,7 +362,7 @@
           <div class="form-group">
             <label>Withdrawal Amount (₦)</label>
             <input type="number" id="input-withdraw-amount" placeholder="Min. ₦1,000" min="1000" step="100" />
-            <p class="field-hint">A 10% processing fee applies to each withdrawal request.</p>
+            <p class="field-hint">A 10% fee applies. Withdrawals require an active equipment purchase.</p>
           </div>
 
           <button class="btn btn-primary btn-block" id="btn-submit-withdraw">Submit Withdrawal</button>
@@ -347,7 +395,36 @@
         </div>
       </section>
 
-      <!-- 8. DEDICATED HISTORY PAGE -->
+      <!-- 8. DEDICATED GIFT CODE PAGE -->
+      <section id="view-gift" class="view-section">
+        <div class="subpage-header">
+          <button class="back-btn" data-back="home"><i class="fa-solid fa-chevron-left"></i></button>
+          <h2>Redeem Gift Code</h2>
+        </div>
+
+        <div class="page-content-box">
+          <div class="gift-banner-card">
+            <i class="fa-solid fa-gift gift-icon-anim"></i>
+            <h3>Enter Secret Coupon</h3>
+            <p>Claim exclusive bonuses directly credited to your Withdrawable Balance.</p>
+          </div>
+
+          <form id="form-page-gift">
+            <div class="form-group">
+              <label>Gift Code</label>
+              <input type="text" id="input-page-gift-code" placeholder="e.g. GIFT-XXXXXX" required />
+            </div>
+            <button type="submit" class="btn btn-primary btn-block" id="btn-claim-gift">Claim Reward</button>
+          </form>
+
+          <div style="margin-top:20px;">
+            <div class="section-title">Total Gift Rewards Claimed: <span class="text-success" id="gift-total-claimed">₦0.00</span></div>
+            <div class="history-list" id="gift-claims-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 9. DEDICATED HISTORY PAGE -->
       <section id="view-history" class="view-section">
         <div class="subpage-header">
           <button class="back-btn" data-back="profile"><i class="fa-solid fa-chevron-left"></i></button>
@@ -378,23 +455,6 @@
         <span>Profile</span>
       </button>
     </nav>
-  </div>
-
-  <!-- Gift code modal -->
-  <div id="modal-gift" class="modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3>Redeem Gift Code</h3>
-        <button class="modal-close">&times;</button>
-      </div>
-      <form id="form-gift">
-        <div class="form-group">
-          <label>Gift Code</label>
-          <input type="text" id="gift-code-input" placeholder="Enter code" required />
-        </div>
-        <button type="submit" class="btn btn-primary btn-block">Redeem</button>
-      </form>
-    </div>
   </div>
 
   <script src="script.js"></script>
