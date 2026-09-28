@@ -1,78 +1,88 @@
-const { pool, getAuthenticatedUser } = require('./_db');
+import { sql, getAuthUser } from './_db.js';
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json');
-  const user = await getAuthenticatedUser(req);
-  if (!user) {
-    return res.status(401).json({ error: 'Please log in to continue.' });
+  const user = await getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Please log in to continue.' });
+
+  if (req.method === 'GET') {
+    try {
+      const claims = await sql`
+        SELECT code, amount, created_at 
+        FROM gift_code_claims 
+        WHERE user_id = ${user.id} 
+        ORDER BY created_at DESC
+      `;
+      const totalClaimed = claims.reduce((acc, c) => acc + parseFloat(c.amount), 0);
+      return res.status(200).json({ success: true, total_claimed: totalClaimed, claims });
+    } catch {
+      return res.status(500).json({ error: 'Failed to load gift claims.' });
+    }
   }
 
   if (req.method === 'POST') {
     const { code } = req.body || {};
-    if (!code || typeof code !== 'string') {
-      return res.status(400).json({ error: 'Gift code is required.' });
+    if (!code || !code.trim()) {
+      return res.status(400).json({ error: 'Please enter a valid gift code.' });
     }
 
     const cleanCode = code.trim().toUpperCase();
-    const client = await pool.connect();
+
     try {
-      await client.query('BEGIN');
-
-      const codeRes = await client.query('SELECT * FROM gift_codes WHERE code = $1 FOR UPDATE', [cleanCode]);
-      if (codeRes.rows.length === 0) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ error: 'Invalid gift code.' });
-      }
-
-      const gift = codeRes.rows[0];
-      if (gift.used_count >= gift.max_uses) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ error: 'This gift code has reached its usage limit.' });
-      }
-
-      const alreadyUsed = await client.query(
-        'SELECT id FROM gift_code_redemptions WHERE code_id = $1 AND user_id = $2',
-        [gift.id, user.id]
-      );
-
-      if (alreadyUsed.rows.length > 0) {
-        await client.query('ROLLBACK');
+      // 1. Check if already claimed by this user
+      const existingClaim = await sql`
+        SELECT id FROM gift_code_claims WHERE user_id = ${user.id} AND code = ${cleanCode}
+      `;
+      if (existingClaim.length > 0) {
         return res.status(400).json({ error: 'You have already redeemed this gift code.' });
       }
 
-      await client.query(
-        'INSERT INTO gift_code_redemptions (code_id, user_id, amount) VALUES ($1, $2, $3)',
-        [gift.id, user.id, gift.amount]
-      );
+      // 2. Fetch code validity
+      const codeRows = await sql`
+        SELECT * FROM gift_codes WHERE code = ${cleanCode}
+      `;
+      if (!codeRows.length) {
+        return res.status(404).json({ error: 'Invalid gift code. Please verify and try again.' });
+      }
 
-      await client.query(
-        'UPDATE gift_codes SET used_count = used_count + 1 WHERE id = $1',
-        [gift.id]
-      );
+      const gift = codeRows[0];
+      if (gift.expires_at && new Date() > new Date(gift.expires_at)) {
+        return res.status(400).json({ error: 'This gift code has expired.' });
+      }
+      if (gift.claimed_count >= gift.max_claims) {
+        return res.status(400).json({ error: 'This gift code has reached its maximum claim limit.' });
+      }
 
-      await client.query(
-        'UPDATE users SET balance = balance + $1 WHERE id = $2',
-        [gift.amount, user.id]
-      );
+      const reward = parseFloat(gift.amount);
 
-      await client.query(
-        `INSERT INTO transactions (user_id, type, title, amount, direction)
-         VALUES ($1, 'Bonus', 'Gift Code Reward', $2, 'in')`,
-        [user.id, gift.amount]
-      );
+      // 3. Increment claims and award withdrawable balance
+      await sql`UPDATE gift_codes SET claimed_count = claimed_count + 1 WHERE code = ${cleanCode}`;
+      await sql`
+        UPDATE users 
+        SET withdrawable_balance = withdrawable_balance + ${reward},
+            total_income = total_income + ${reward}
+        WHERE id = ${user.id}
+      `;
 
-      await client.query('COMMIT');
+      await sql`
+        INSERT INTO gift_code_claims (user_id, code, amount)
+        VALUES (${user.id}, ${cleanCode}, ${reward})
+      `;
+
+      await sql`
+        INSERT INTO transactions (user_id, type, title, amount, direction, created_at)
+        VALUES (${user.id}, 'Gift Code', ${'Redeemed code ' + cleanCode}, ${reward}, 'in', CURRENT_TIMESTAMP)
+      `;
+
       return res.status(200).json({
         success: true,
-        message: `Successfully redeemed ${gift.amount} reward!`
+        message: `Successfully redeemed ₦${reward.toLocaleString()}! Added to your Withdrawable Balance.`
       });
-    } catch {
-      await client.query('ROLLBACK');
-      return res.status(500).json({ error: 'Something went wrong. Please try again.' });
-    } finally {
-      client.release();
+    } catch (err) {
+      console.error('Gift code redeem error:', err);
+      return res.status(500).json({ error: 'Failed to redeem gift code.' });
     }
   }
 
   return res.status(405).json({ error: 'Method not allowed.' });
-};
+}
