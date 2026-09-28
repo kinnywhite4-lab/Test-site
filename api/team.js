@@ -1,2 +1,37 @@
-import { ensureSchema, ensureUser, json, method, sql } from './_db.js';
-export default async function handler(req,res){if(!method(req,res,['GET']))return;try{await ensureSchema();const userId=await ensureUser(req);const rows=await sql`SELECT r.level,r.commission_earned,u.display_name,u.email,u.referral_code,r.created_at FROM referrals r JOIN app_users u ON u.id=r.referred_user_id WHERE r.referrer_id=${userId} ORDER BY r.created_at DESC`;const me=(await sql`SELECT referral_code FROM app_users WHERE id=${userId}`)[0];return json(res,200,{ok:true,referralCode:me.referral_code,referrals:rows});}catch(e){console.error(e);return json(res,500,{ok:false,error:'Team data could not be loaded.'});}}
+const { pool, getAuthenticatedUser } = require('./_db');
+
+module.exports = async function handler(req, res) {
+  res.setHeader('Content-Type', 'application/json');
+  const user = await getAuthenticatedUser(req);
+  if (!user) {
+    return res.status(401).json({ error: 'Please log in to continue.' });
+  }
+
+  try {
+    const { rows: directMembers } = await pool.query(
+      `SELECT id, phone_number, created_at, balance, total_income 
+       FROM users WHERE referred_by = $1 ORDER BY created_at DESC`,
+      [user.id]
+    );
+
+    const maskedMembers = directMembers.map(m => {
+      const p = m.phone_number || '';
+      const masked = p.length > 5 ? p.substring(0, 3) + '****' + p.substring(p.length - 2) : '****';
+      return {
+        id: m.id,
+        phone_number: masked,
+        created_at: m.created_at,
+        total_income: m.total_income
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      referral_code: user.referral_code,
+      team_count: maskedMembers.length,
+      members: maskedMembers
+    });
+  } catch {
+    return res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
+};
