@@ -99,7 +99,7 @@ export default async function handler(req, res) {
       const user = rows[0];
       const token = createSessionToken(user.id);
       res.setHeader('Set-Cookie', `novavest_session=${token}; HttpOnly; Path=/; Max-Age=2592000; SameSite=Lax; Secure`);
-      return res.status(200).json({ success: true, user });
+      return res.status(200).json({ success: true, token, user });
     } catch (err) {
       console.error('Registration Error:', err);
       return res.status(500).json({ error: err.message || 'Database error during registration.' });
@@ -132,7 +132,7 @@ export default async function handler(req, res) {
       delete user.password_hash;
       const token = createSessionToken(user.id);
       res.setHeader('Set-Cookie', `novavest_session=${token}; HttpOnly; Path=/; Max-Age=2592000; SameSite=Lax; Secure`);
-      return res.status(200).json({ success: true, user });
+      return res.status(200).json({ success: true, token, user });
     } catch (err) {
       console.error('Login Error:', err);
       return res.status(500).json({ error: err.message || 'Database error during login.' });
@@ -147,7 +147,8 @@ export default async function handler(req, res) {
   if (action === 'me') {
     try {
       const cookies = parseCookies(req);
-      const token = cookies.novavest_session;
+      const authHeader = req.headers && req.headers.authorization;
+      const token = cookies.novavest_session || (authHeader && authHeader.replace('Bearer ', ''));
       const userId = verifySessionToken(token);
       if (!userId) {
         return res.status(401).json({ error: 'Please log in to continue.' });
