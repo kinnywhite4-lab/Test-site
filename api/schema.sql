@@ -1,0 +1,2 @@
+-- Optional manual migration. The API also creates the same schema automatically.
+-- Set DATABASE_URL in Vercel/your local environment before using the API.
