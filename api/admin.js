@@ -13,15 +13,12 @@ async function verifyAdminAuth(req, sql) {
   
   let validKey = process.env.ADMIN_SECRET_KEY || 'novavest_admin_2026';
 
-  // Safely attempt to read dynamic key from database if settings table exists
   try {
     const rows = await sql`SELECT value FROM settings WHERE key = 'admin_key' LIMIT 1`;
     if (rows && rows.length > 0 && rows[0].value) {
       validKey = rows[0].value;
     }
-  } catch (err) {
-    // If table doesn't exist yet, gracefully fall back to default key
-  }
+  } catch (err) {}
 
   if (adminKeyHeader && adminKeyHeader === validKey) {
     return { authorized: true, identifier: 'key_bearer' };
@@ -35,7 +32,7 @@ async function verifyAdminAuth(req, sql) {
   return { authorized: false };
 }
 
-// Auto-provision tables if missing
+// Auto-provision settings table if missing
 async function ensureTables(sql) {
   try {
     await sql`
@@ -55,9 +52,7 @@ async function ensureTables(sql) {
         ('admin_key', 'novavest_admin_2026')
       ON CONFLICT (key) DO NOTHING;
     `;
-  } catch (e) {
-    // Silently continue if permissions or lock issues occur
-  }
+  } catch (e) {}
 }
 
 export default async function handler(req, res) {
@@ -72,13 +67,11 @@ export default async function handler(req, res) {
 
   const sql = getDb();
   
-  // Verify Admin Authentication
   const auth = await verifyAdminAuth(req, sql);
   if (!auth.authorized) {
     return res.status(401).json({ success: false, error: 'Unauthorized: Admin authentication failed.' });
   }
 
-  // Ensure baseline tables exist
   await ensureTables(sql);
 
   const { action } = req.query;
@@ -134,38 +127,37 @@ export default async function handler(req, res) {
     // 2. USERS
     // -------------------------------------------------------------
     if (action === 'users') {
-      const users = await sql`
-        SELECT 
-          id, 
-          COALESCE(phone, phone_number) as phone_number,
-          referral_code, 
-          COALESCE(deposit_balance, 0)::numeric as deposit_balance, 
-          COALESCE(withdrawable_balance, 0)::numeric as withdrawable_balance,
-          COALESCE(is_banned, false) as is_banned,
-          created_at
-        FROM users 
-        ORDER BY id DESC
-      `;
+      const rawUsers = await sql`SELECT * FROM users ORDER BY id DESC`;
+      const users = rawUsers.map(u => ({
+        id: u.id,
+        phone_number: u.phone_number || u.phone || 'Investor',
+        referral_code: u.referral_code || '---',
+        deposit_balance: Number(u.deposit_balance || 0),
+        withdrawable_balance: Number(u.withdrawable_balance || 0),
+        is_banned: Boolean(u.is_banned),
+        created_at: u.created_at
+      }));
       return res.status(200).json({ success: true, users });
     }
 
     if (action === 'user-detail') {
       const { user_id } = req.query;
-      const [user] = await sql`
-        SELECT 
-          id, 
-          COALESCE(phone, phone_number) as phone_number,
-          referral_code,
-          COALESCE(deposit_balance, 0)::numeric as deposit_balance,
-          COALESCE(withdrawable_balance, 0)::numeric as withdrawable_balance,
-          COALESCE(total_deposited, 0)::numeric as total_deposited,
-          COALESCE(total_withdrawn, 0)::numeric as total_withdrawn,
-          COALESCE(is_banned, false) as is_banned,
-          created_at
-        FROM users WHERE id = ${user_id}
-      `;
+      const rows = await sql`SELECT * FROM users WHERE id = ${user_id}`;
+      const rawUser = rows[0];
 
-      if (!user) return res.status(404).json({ error: 'User account not found' });
+      if (!rawUser) return res.status(404).json({ error: 'User account not found' });
+
+      const user = {
+        id: rawUser.id,
+        phone_number: rawUser.phone_number || rawUser.phone || 'Investor',
+        referral_code: rawUser.referral_code || '---',
+        deposit_balance: Number(rawUser.deposit_balance || 0),
+        withdrawable_balance: Number(rawUser.withdrawable_balance || 0),
+        total_deposited: Number(rawUser.total_deposited || 0),
+        total_withdrawn: Number(rawUser.total_withdrawn || 0),
+        is_banned: Boolean(rawUser.is_banned),
+        created_at: rawUser.created_at
+      };
 
       const deposits = await sql`SELECT * FROM deposits WHERE user_id = ${user_id} ORDER BY id DESC LIMIT 20`.catch(() => []);
       const withdrawals = await sql`SELECT * FROM withdrawals WHERE user_id = ${user_id} ORDER BY id DESC LIMIT 20`.catch(() => []);
@@ -240,12 +232,12 @@ export default async function handler(req, res) {
     // -------------------------------------------------------------
     if (action === 'investments') {
       try {
-        const investments = await sql`
+        const rawInvestments = await sql`
           SELECT 
             up.id,
             p.name as product_name,
             p.price,
-            COALESCE(u.phone, u.phone_number) as phone_number,
+            COALESCE(u.phone_number, u.phone, 'Investor') as phone_number,
             p.price as amount_paid,
             (p.daily_yield * p.duration_days) as total_revenue,
             COALESCE(up.status, 'Active') as status,
@@ -256,15 +248,10 @@ export default async function handler(req, res) {
           LEFT JOIN users u ON up.user_id = u.id
           ORDER BY up.id DESC
         `;
-        return res.status(200).json({ success: true, investments });
+        return res.status(200).json({ success: true, investments: rawInvestments });
       } catch (e) {
-        const investments = await sql`
-          SELECT ui.*, COALESCE(u.phone, u.phone_number) as phone_number 
-          FROM user_investments ui 
-          LEFT JOIN users u ON ui.user_id = u.id 
-          ORDER BY ui.id DESC
-        `.catch(() => []);
-        return res.status(200).json({ success: true, investments });
+        const fallback = await sql`SELECT * FROM user_investments ORDER BY id DESC`.catch(() => []);
+        return res.status(200).json({ success: true, investments: fallback });
       }
     }
 
@@ -282,21 +269,32 @@ export default async function handler(req, res) {
     // 4. DEPOSITS
     // -------------------------------------------------------------
     if (action === 'deposits') {
-      const deposits = await sql`
+      const rawDeposits = await sql`
         SELECT 
           d.id,
-          COALESCE(d.reference, concat('DEP-', d.id)) as reference,
-          COALESCE(d.channel_name, 'Manual Bank Transfer') as channel_name,
+          d.reference,
+          d.channel_name,
           d.amount,
-          COALESCE(d.sender_name, 'N/A') as sender_name,
-          COALESCE(u.phone, u.phone_number) as phone_number,
+          d.sender_name,
           d.created_at,
-          COALESCE(d.proof_url, d.receipt_url) as proof_url,
-          INITCAP(d.status) as status
+          d.proof_url,
+          d.status,
+          COALESCE(u.phone_number, u.phone, 'Investor') as phone_number
         FROM deposits d
         LEFT JOIN users u ON d.user_id = u.id
         ORDER BY d.id DESC
       `;
+      const deposits = rawDeposits.map(d => ({
+        id: d.id,
+        reference: d.reference || `DEP-${d.id}`,
+        channel_name: d.channel_name || 'Manual Bank Transfer',
+        amount: d.amount,
+        sender_name: d.sender_name || 'N/A',
+        phone_number: d.phone_number,
+        created_at: d.created_at,
+        proof_url: d.proof_url || null,
+        status: (d.status || 'Pending').charAt(0).toUpperCase() + (d.status || 'Pending').slice(1).toLowerCase()
+      }));
       return res.status(200).json({ success: true, deposits });
     }
 
@@ -339,20 +337,30 @@ export default async function handler(req, res) {
     // 5. WITHDRAWALS
     // -------------------------------------------------------------
     if (action === 'withdrawals') {
-      const withdrawals = await sql`
+      const rawWithdrawals = await sql`
         SELECT 
           w.id,
-          COALESCE(w.bank_name, 'Linked Bank') as bank_name,
+          w.bank_name,
           w.amount,
-          COALESCE(w.net_amount, w.amount) as net_amount,
-          COALESCE(w.account_name, 'User') as account_name,
-          COALESCE(w.account_number, '---') as account_number,
-          COALESCE(u.phone, u.phone_number) as phone_number,
-          INITCAP(w.status) as status
+          w.net_amount,
+          w.account_name,
+          w.account_number,
+          w.status,
+          COALESCE(u.phone_number, u.phone, 'Investor') as phone_number
         FROM withdrawals w
         LEFT JOIN users u ON w.user_id = u.id
         ORDER BY w.id DESC
       `;
+      const withdrawals = rawWithdrawals.map(w => ({
+        id: w.id,
+        bank_name: w.bank_name || 'Linked Bank',
+        amount: w.amount,
+        net_amount: w.net_amount || w.amount,
+        account_name: w.account_name || 'User',
+        account_number: w.account_number || '---',
+        phone_number: w.phone_number,
+        status: (w.status || 'Pending').charAt(0).toUpperCase() + (w.status || 'Pending').slice(1).toLowerCase()
+      }));
       return res.status(200).json({ success: true, withdrawals });
     }
 
@@ -395,17 +403,15 @@ export default async function handler(req, res) {
     // 6. PRODUCTS
     // -------------------------------------------------------------
     if (action === 'products') {
-      const products = await sql`
-        SELECT 
-          id, 
-          name, 
-          price, 
-          COALESCE(daily_yield, daily_income, 0) as daily_income, 
-          COALESCE(duration_days, period_days, 30) as period_days,
-          (COALESCE(daily_yield, daily_income, 0) * COALESCE(duration_days, period_days, 30)) as total_revenue
-        FROM products 
-        ORDER BY price ASC
-      `;
+      const rawProducts = await sql`SELECT * FROM products ORDER BY price ASC`;
+      const products = rawProducts.map(p => ({
+        id: p.id,
+        name: p.name,
+        price: p.price,
+        daily_income: p.daily_yield || p.daily_income || 0,
+        period_days: p.duration_days || p.period_days || 30,
+        total_revenue: (p.daily_yield || p.daily_income || 0) * (p.duration_days || p.period_days || 30)
+      }));
       return res.status(200).json({ success: true, products });
     }
 
