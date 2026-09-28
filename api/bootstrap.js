@@ -36,7 +36,8 @@ export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json');
 
   const cookies = parseCookies(req);
-  const token = cookies.novavest_session;
+  const authHeader = req.headers && req.headers.authorization;
+  const token = cookies.novavest_session || (authHeader && authHeader.replace('Bearer ', ''));
   const userId = verifySessionToken(token);
 
   if (!userId) {
@@ -54,25 +55,44 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: 'User not found.' });
     }
 
-    const [bankRes, purchasesRes, depositsRes, withdrawalsRes, transactionsRes] = await Promise.all([
-      sql`SELECT bank_name, account_number, account_name FROM bank_cards WHERE user_id = ${userId}`,
-      sql`SELECT * FROM purchases WHERE user_id = ${userId} ORDER BY created_at DESC`,
-      sql`SELECT * FROM deposits WHERE user_id = ${userId} ORDER BY created_at DESC`,
-      sql`SELECT * FROM withdrawals WHERE user_id = ${userId} ORDER BY created_at DESC`,
-      sql`SELECT * FROM transactions WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT 50`
-    ]);
+    let bank = null;
+    let purchases = [];
+    let deposits = [];
+    let withdrawals = [];
+    let transactions = [];
+
+    try {
+      const bankRes = await sql`SELECT bank_name, account_number, account_name FROM bank_cards WHERE user_id = ${userId}`;
+      bank = bankRes[0] || null;
+    } catch {}
+
+    try {
+      purchases = await sql`SELECT * FROM purchases WHERE user_id = ${userId} ORDER BY created_at DESC`;
+    } catch {}
+
+    try {
+      deposits = await sql`SELECT * FROM deposits WHERE user_id = ${userId} ORDER BY created_at DESC`;
+    } catch {}
+
+    try {
+      withdrawals = await sql`SELECT * FROM withdrawals WHERE user_id = ${userId} ORDER BY created_at DESC`;
+    } catch {}
+
+    try {
+      transactions = await sql`SELECT * FROM transactions WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT 50`;
+    } catch {}
 
     return res.status(200).json({
       success: true,
       user,
-      bank: bankRes[0] || null,
-      purchases: purchasesRes,
-      deposits: depositsRes,
-      withdrawals: withdrawalsRes,
-      transactions: transactionsRes
+      bank,
+      purchases,
+      deposits,
+      withdrawals,
+      transactions
     });
   } catch (err) {
-    console.error('Bootstrap Error:', err);
-    return res.status(500).json({ error: 'Something went wrong. Please try again.' });
+    console.error('Bootstrap Critical Error:', err);
+    return res.status(500).json({ error: 'Failed to load user profile.' });
   }
 }
