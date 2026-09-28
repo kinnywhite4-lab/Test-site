@@ -1,18 +1,15 @@
-const { pool, getAuthenticatedUser } = require('./_db');
+import { sql, getAuthUser } from './_db.js';
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json');
-  const user = await getAuthenticatedUser(req);
-  if (!user) {
-    return res.status(401).json({ error: 'Please log in to continue.' });
-  }
+  const user = await getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Please log in to continue.' });
 
   try {
-    const { rows: directMembers } = await pool.query(
-      `SELECT id, phone_number, created_at, balance, total_income 
-       FROM users WHERE referred_by = $1 ORDER BY created_at DESC`,
-      [user.id]
-    );
+    const directMembers = await sql`
+      SELECT id, phone_number, created_at, balance, total_income 
+      FROM users WHERE referred_by = ${user.id} ORDER BY created_at DESC
+    `;
 
     const maskedMembers = directMembers.map(m => {
       const p = m.phone_number || '';
@@ -31,7 +28,8 @@ module.exports = async function handler(req, res) {
       team_count: maskedMembers.length,
       members: maskedMembers
     });
-  } catch {
-    return res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  } catch (err) {
+    console.error('Team Error:', err);
+    return res.status(500).json({ error: 'Failed to load team data.' });
   }
-};
+}
