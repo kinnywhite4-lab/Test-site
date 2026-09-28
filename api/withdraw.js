@@ -17,6 +17,21 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
+    // -------------------------------------------------------------
+    // BACKEND ENFORCEMENT: Check Global Withdrawal OPEN/CLOSE Status
+    // -------------------------------------------------------------
+    try {
+      const statusSetting = await sql`SELECT val FROM platform_settings WHERE id = 'withdrawals_enabled'`;
+      const isEnabled = statusSetting.length ? statusSetting[0].val === 'true' : true;
+      if (!isEnabled) {
+        return res.status(403).json({
+          error: 'Withdrawals are currently unavailable. Please check back later.'
+        });
+      }
+    } catch (err) {
+      console.error('Failed to check withdrawal global status:', err);
+    }
+
     const { amount } = req.body || {};
     const parsedAmount = parseFloat(amount);
 
@@ -38,10 +53,18 @@ export default async function handler(req, res) {
       }
 
       const bank = bankCards[0];
-      const fee = parsedAmount * 0.10;
+
+      // Retrieve dynamic fee rate if configured, defaulting to existing 10%
+      let feeRate = 0.10;
+      try {
+        const feeSetting = await sql`SELECT val FROM platform_settings WHERE id = 'withdrawal_fee_percent'`;
+        if (feeSetting.length) feeRate = parseFloat(feeSetting[0].val) / 100;
+      } catch {}
+
+      const fee = parsedAmount * feeRate;
       const netAmount = parsedAmount - fee;
 
-      // Atomically reserve/deduct the requested amount
+      // Atomically reserve funds
       await sql`
         UPDATE users 
         SET withdrawable_balance = withdrawable_balance - ${parsedAmount},
