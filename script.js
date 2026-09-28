@@ -34,9 +34,6 @@ function switchView(viewName) {
 
   if (targetSec) targetSec.classList.add('active');
   if (targetBtn) targetBtn.classList.add('active');
-
-  if (viewName === 'team') openTeamPage();
-  if (viewName === 'invite') openInvitePage();
 }
 
 document.querySelectorAll('[data-back]').forEach(btn => {
@@ -230,12 +227,12 @@ async function buyProduct(productId, btn) {
 }
 
 // -------------------------------------------------------------
-// 3. SEPARATE INVITE PAGE LOGIC (with fallback)
+// 3. SEPARATE INVITE PAGE LOGIC (No infinite loop)
 // -------------------------------------------------------------
 async function openInvitePage() {
   switchView('invite');
 
-  // Immediately populate from loaded currentUser if available
+  // Immediately use loaded user data as fallback
   if (currentUser && currentUser.referral_code) {
     const linkInput = document.getElementById('invite-link-val');
     const codeInput = document.getElementById('invite-code-val');
@@ -273,9 +270,10 @@ document.getElementById('btn-copy-invite-code')?.addEventListener('click', () =>
 });
 
 // -------------------------------------------------------------
-// 4. SEPARATE TEAM PAGE LOGIC (TEAM 1 & TEAM 2 CARDS)
+// 4. SEPARATE TEAM PAGE LOGIC
 // -------------------------------------------------------------
 async function openTeamPage() {
+  switchView('team');
   try {
     const data = await fetchAPI('/api/team');
     currentTeamData = data;
@@ -783,9 +781,15 @@ document.getElementById('menu-tx-history')?.addEventListener('click', async () =
   }
 });
 
+// Bottom navigation buttons
 document.querySelectorAll('.nav-item').forEach(btn => {
   btn.addEventListener('click', () => {
-    switchView(btn.dataset.view);
+    const view = btn.dataset.view;
+    if (view === 'team') {
+      openTeamPage();
+    } else {
+      switchView(view);
+    }
   });
 });
 
