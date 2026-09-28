@@ -4,13 +4,9 @@ import crypto from 'crypto';
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json');
 
-  // -----------------------------------------------------------
-  // 1. GET: Fetch Channels or User Deposit History
-  // -----------------------------------------------------------
   if (req.method === 'GET') {
     const action = req.query.action;
 
-    // Public / authenticated channels query
     if (action === 'channels') {
       try {
         const channels = await sql`
@@ -21,7 +17,6 @@ export default async function handler(req, res) {
         `;
         return res.status(200).json({ success: true, channels });
       } catch (err) {
-        console.error('Failed to load payment channels:', err);
         return res.status(500).json({ error: 'Failed to load payment channels.' });
       }
     }
@@ -39,15 +34,11 @@ export default async function handler(req, res) {
         ORDER BY d.created_at DESC
       `;
       return res.status(200).json({ success: true, deposits });
-    } catch (err) {
-      console.error('Failed to load user deposits:', err);
+    } catch {
       return res.status(500).json({ error: 'Failed to load deposits.' });
     }
   }
 
-  // -----------------------------------------------------------
-  // 2. POST: Submit Deposit Request
-  // -----------------------------------------------------------
   if (req.method === 'POST') {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Please log in to continue.' });
@@ -55,18 +46,21 @@ export default async function handler(req, res) {
     const { amount, channel_id, sender_name, proof_url } = req.body || {};
     const parsedAmount = parseFloat(amount);
 
+    // Strict Server-Side Validation: Name & Receipt are both mandatory
+    if (!sender_name || !sender_name.trim()) {
+      return res.status(400).json({ error: 'Please enter your name before submitting the deposit.' });
+    }
+    if (!proof_url || typeof proof_url !== 'string' || !proof_url.startsWith('data:image')) {
+      return res.status(400).json({ error: 'Please upload your payment receipt before submitting the deposit.' });
+    }
     if (isNaN(parsedAmount) || parsedAmount < 1000) {
       return res.status(400).json({ error: 'Minimum recharge amount is ₦1,000.' });
     }
     if (!channel_id) {
       return res.status(400).json({ error: 'Please select a deposit channel.' });
     }
-    if (!sender_name || !sender_name.trim()) {
-      return res.status(400).json({ error: 'Please enter the depositor/sender full name.' });
-    }
 
     try {
-      // Verify selected channel exists
       const channelRows = await sql`
         SELECT id, name FROM payment_channels WHERE id = ${channel_id} AND status = 'Active'
       `;
@@ -76,39 +70,29 @@ export default async function handler(req, res) {
 
       const ref = 'DEP' + Date.now().toString(36).toUpperCase() + crypto.randomBytes(3).toString('hex').toUpperCase();
 
-      // Clean, validated image string or empty
-      const receiptData = (proof_url && typeof proof_url === 'string' && proof_url.startsWith('data:image'))
-        ? proof_url
-        : null;
-
-      // 1. Insert Deposit Record
       const insertResult = await sql`
         INSERT INTO deposits (user_id, amount, payment_method, status, reference, channel_id, sender_name, proof_url, created_at)
-        VALUES (${user.id}, ${parsedAmount}, 'Bank Transfer', 'Pending', ${ref}, ${channel_id}, ${sender_name.trim()}, ${receiptData}, CURRENT_TIMESTAMP)
+        VALUES (${user.id}, ${parsedAmount}, 'Bank Transfer', 'Pending', ${ref}, ${channel_id}, ${sender_name.trim()}, ${proof_url}, CURRENT_TIMESTAMP)
         RETURNING id, reference, amount, status
       `;
 
-      const newDeposit = insertResult[0];
-
-      // 2. Create Transaction Record safely
       try {
         await sql`
-          INSERT INTO transactions (user_id, type, title, amount, direction, created_at)
-          VALUES (${user.id}, 'Deposit', ${'Recharge Pending (' + ref + ')'}, ${parsedAmount}, 'in', CURRENT_TIMESTAMP)
+          INSERT INTO transactions (user_id, type, title, amount, direction, reference, created_at)
+          VALUES (${user.id}, 'Deposit', ${'Recharge Pending (' + ref + ')'}, ${parsedAmount}, 'in', ${ref}, CURRENT_TIMESTAMP)
         `;
       } catch (txErr) {
-        console.warn('Could not record pending transaction history, continuing:', txErr.message);
+        console.warn('Could not record pending transaction history:', txErr.message);
       }
 
       return res.status(200).json({
         success: true,
         message: 'Recharge request submitted successfully. Awaiting administrator review.',
-        reference: newDeposit.reference,
-        deposit_id: newDeposit.id
+        reference: insertResult[0].reference
       });
     } catch (err) {
-      console.error('Critical Deposit Insert Error:', err);
-      return res.status(500).json({ error: err.message || 'Database error processing your deposit.' });
+      console.error('Deposit processing error:', err);
+      return res.status(500).json({ error: 'Failed to process deposit. Please try again.' });
     }
   }
 
