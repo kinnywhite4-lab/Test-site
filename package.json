@@ -2,10 +2,6 @@
   "name": "novavest",
   "version": "1.0.0",
   "private": true,
-  "scripts": {
-    "dev": "vercel dev",
-    "build": "echo 'No build step required'"
-  },
   "dependencies": {
     "pg": "^8.11.3"
   }
