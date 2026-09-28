@@ -1,12 +1,7 @@
-import pg from 'pg';
+import { neon } from '@neondatabase/serverless';
 import crypto from 'crypto';
 
-const { Pool } = pg;
-
-export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
-});
+export const sql = neon(process.env.DATABASE_URL);
 
 const SESSION_SECRET = process.env.SESSION_SECRET || 'novavest_secure_session_secret_2026';
 
@@ -57,17 +52,18 @@ export function parseCookies(req) {
   return list;
 }
 
-export async function getAuthenticatedUser(req) {
+export async function getAuthUser(req) {
   try {
     const cookies = parseCookies(req);
-    const token = cookies.novavest_session;
+    const authHeader = req.headers && req.headers.authorization;
+    const token = cookies.novavest_session || (authHeader && authHeader.replace('Bearer ', ''));
     const userId = verifySessionToken(token);
     if (!userId) return null;
 
-    const { rows } = await pool.query(
-      'SELECT id, phone_number, balance, withdrawable_balance, total_income, total_withdrawn, referral_code, referred_by FROM users WHERE id = $1',
-      [userId]
-    );
+    const rows = await sql`
+      SELECT id, phone_number, balance, withdrawable_balance, total_income, total_withdrawn, referral_code, referred_by 
+      FROM users WHERE id = ${userId}
+    `;
     return rows[0] || null;
   } catch {
     return null;
