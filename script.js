@@ -1,5 +1,3 @@
-// NovaVest Client Controller
-
 const VIP_PRODUCTS_LIST = [
   { id: 'vip-1', name: 'VIP 1 Equipment', price: 3000, daily: 450, days: 30 },
   { id: 'vip-2', name: 'VIP 2 Equipment', price: 7000, daily: 1100, days: 30 },
@@ -18,6 +16,7 @@ let userTransactions = [];
 
 function showToast(msg) {
   const toast = document.getElementById('toast');
+  if (!toast) return;
   toast.innerText = msg;
   toast.className = 'toast show';
   setTimeout(() => {
@@ -29,7 +28,6 @@ function formatCurrency(amount) {
   return '₦' + parseFloat(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-// Navigation
 function switchView(viewName) {
   document.querySelectorAll('.view-section').forEach(sec => sec.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
@@ -41,7 +39,6 @@ function switchView(viewName) {
   if (targetBtn) targetBtn.classList.add('active');
 }
 
-// Modals
 function openModal(modalId) {
   const modal = document.getElementById(modalId);
   if (modal) modal.classList.add('open');
@@ -55,7 +52,6 @@ document.querySelectorAll('.modal-close').forEach(btn => {
   btn.addEventListener('click', closeModal);
 });
 
-// Auth form toggles
 document.getElementById('link-show-register').addEventListener('click', (e) => {
   e.preventDefault();
   document.getElementById('login-form').style.display = 'none';
@@ -70,28 +66,27 @@ document.getElementById('link-show-login').addEventListener('click', (e) => {
   document.getElementById('auth-subtitle').innerText = 'Log in to your account';
 });
 
-// API helper
 async function fetchAPI(url, options = {}) {
   options.headers = options.headers || {};
   if (options.body && typeof options.body === 'object') {
     options.headers['Content-Type'] = 'application/json';
     options.body = JSON.stringify(options.body);
   }
+  
+  const localToken = localStorage.getItem('nv_token');
+  if (localToken) {
+    options.headers['Authorization'] = `Bearer ${localToken}`;
+  }
   options.credentials = 'same-origin';
 
-  try {
-    const res = await fetch(url, options);
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(data.error || 'Something went wrong. Please try again.');
-    }
-    return data;
-  } catch (err) {
-    throw err;
+  const res = await fetch(url, options);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || 'Something went wrong. Please try again.');
   }
+  return data;
 }
 
-// Renderers
 function renderDashboard() {
   if (!currentUser) return;
 
@@ -111,6 +106,7 @@ function renderDashboard() {
 
 function renderHomeProducts() {
   const container = document.getElementById('home-product-list');
+  if (!container) return;
   container.innerHTML = VIP_PRODUCTS_LIST.map(prod => `
     <div class="product-card">
       <div class="product-info">
@@ -130,8 +126,9 @@ function renderHomeProducts() {
 
 function renderMyProducts() {
   const container = document.getElementById('my-product-list');
+  if (!container) return;
   if (!userPurchases.length) {
-    container.innerHTML = `<div class="empty-state">No equipment currently active.</div>`;
+    container.innerHTML = '<div class="empty-state">No equipment currently active.</div>';
     return;
   }
 
@@ -148,10 +145,13 @@ function renderMyProducts() {
 }
 
 function renderTeam(teamData) {
-  document.getElementById('team-count').innerText = teamData.team_count || 0;
+  const countEl = document.getElementById('team-count');
+  if (countEl) countEl.innerText = teamData.team_count || 0;
   const list = document.getElementById('team-members-list');
+  if (!list) return;
+
   if (!teamData.members || !teamData.members.length) {
-    list.innerHTML = `<div class="empty-state">No team members invited yet.</div>`;
+    list.innerHTML = '<div class="empty-state">No team members invited yet.</div>';
     return;
   }
 
@@ -166,13 +166,12 @@ function renderTeam(teamData) {
   `).join('');
 }
 
-// History modal renderer
 function showHistoryModal(title, items, type) {
   document.getElementById('history-modal-title').innerText = title;
   const container = document.getElementById('history-items');
 
   if (!items || !items.length) {
-    container.innerHTML = `<div class="empty-state">No records found.</div>`;
+    container.innerHTML = '<div class="empty-state">No records found.</div>';
   } else {
     container.innerHTML = items.map(it => {
       let amountClass = 'in';
@@ -198,7 +197,6 @@ function showHistoryModal(title, items, type) {
   openModal('modal-history');
 }
 
-// User Actions
 async function buyProduct(productId) {
   try {
     const res = await fetchAPI('/api/purchase', {
@@ -212,7 +210,6 @@ async function buyProduct(productId) {
   }
 }
 
-// Load Application Data
 async function loadInitialData() {
   try {
     const data = await fetchAPI('/api/bootstrap');
@@ -224,9 +221,12 @@ async function loadInitialData() {
     userTransactions = data.transactions || [];
 
     if (currentBank) {
-      document.getElementById('bank-name').value = currentBank.bank_name || '';
-      document.getElementById('bank-acc-number').value = currentBank.account_number || '';
-      document.getElementById('bank-acc-name').value = currentBank.account_name || '';
+      const bName = document.getElementById('bank-name');
+      const bNum = document.getElementById('bank-acc-number');
+      const bHold = document.getElementById('bank-acc-name');
+      if (bName) bName.value = currentBank.bank_name || '';
+      if (bNum) bNum.value = currentBank.account_number || '';
+      if (bHold) bHold.value = currentBank.account_name || '';
     }
 
     renderDashboard();
@@ -236,6 +236,7 @@ async function loadInitialData() {
 
     loadTeam();
   } catch (err) {
+    console.error('loadInitialData failed:', err);
     document.getElementById('auth-container').style.display = 'flex';
     document.getElementById('app-container').style.display = 'none';
   }
@@ -248,7 +249,6 @@ async function loadTeam() {
   } catch {}
 }
 
-// Form Handlers
 document.getElementById('register-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const phone = document.getElementById('reg-phone').value;
@@ -259,10 +259,13 @@ document.getElementById('register-form').addEventListener('submit', async (e) =>
   const ref = urlParams.get('ref') || '';
 
   try {
-    await fetchAPI('/api/auth?action=register', {
+    const res = await fetchAPI('/api/auth?action=register', {
       method: 'POST',
       body: { phone_number: phone, password, confirm_password: confirm, ref }
     });
+    if (res.token) {
+      localStorage.setItem('nv_token', res.token);
+    }
     showToast('Registration successful!');
     await loadInitialData();
   } catch (err) {
@@ -276,10 +279,13 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
   const password = document.getElementById('login-password').value;
 
   try {
-    await fetchAPI('/api/auth?action=login', {
+    const res = await fetchAPI('/api/auth?action=login', {
       method: 'POST',
       body: { phone_number: phone, password }
     });
+    if (res.token) {
+      localStorage.setItem('nv_token', res.token);
+    }
     showToast('Login successful!');
     await loadInitialData();
   } catch (err) {
@@ -289,14 +295,12 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
 
 document.getElementById('btn-logout').addEventListener('click', async () => {
   try {
+    localStorage.removeItem('nv_token');
     await fetchAPI('/api/auth?action=logout');
-    window.location.reload();
-  } catch {
-    window.location.reload();
-  }
+  } catch {}
+  window.location.reload();
 });
 
-// Deposit Submit
 document.getElementById('form-deposit').addEventListener('submit', async (e) => {
   e.preventDefault();
   const amount = document.getElementById('deposit-amount').value;
@@ -314,7 +318,6 @@ document.getElementById('form-deposit').addEventListener('submit', async (e) => 
   }
 });
 
-// Withdraw Submit
 document.getElementById('form-withdraw').addEventListener('submit', async (e) => {
   e.preventDefault();
   const amount = document.getElementById('withdraw-amount').value;
@@ -332,7 +335,6 @@ document.getElementById('form-withdraw').addEventListener('submit', async (e) =>
   }
 });
 
-// Bank Submit
 document.getElementById('form-bank').addEventListener('submit', async (e) => {
   e.preventDefault();
   const bank_name = document.getElementById('bank-name').value;
@@ -352,7 +354,6 @@ document.getElementById('form-bank').addEventListener('submit', async (e) => {
   }
 });
 
-// Gift Submit
 document.getElementById('form-gift').addEventListener('submit', async (e) => {
   e.preventDefault();
   const code = document.getElementById('gift-code-input').value;
@@ -370,7 +371,6 @@ document.getElementById('form-gift').addEventListener('submit', async (e) => {
   }
 });
 
-// Copy Referral Code
 document.getElementById('btn-copy-code').addEventListener('click', () => {
   if (!currentUser || !currentUser.referral_code) return;
   const shareLink = `${window.location.origin}?ref=${currentUser.referral_code}`;
@@ -381,7 +381,6 @@ document.getElementById('btn-copy-code').addEventListener('click', () => {
   });
 });
 
-// Quick action buttons & Menu click bindings
 document.querySelectorAll('[data-action]').forEach(elem => {
   elem.addEventListener('click', () => {
     const action = elem.dataset.action;
@@ -395,12 +394,10 @@ document.querySelectorAll('[data-action]').forEach(elem => {
   });
 });
 
-// Bottom navigation buttons
 document.querySelectorAll('.nav-item').forEach(btn => {
   btn.addEventListener('click', () => {
     switchView(btn.dataset.view);
   });
 });
 
-// Initial boot
 loadInitialData();
