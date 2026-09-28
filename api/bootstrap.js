@@ -1,6 +1,6 @@
-const { pool, getAuthenticatedUser } = require('./_db');
+import { pool, getAuthenticatedUser } from './_db.js';
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json');
   const user = await getAuthenticatedUser(req);
   if (!user) {
@@ -26,6 +26,7 @@ module.exports = async function handler(req, res) {
       transactions: transactionsRes.rows
     });
   } catch (err) {
+    console.error('Bootstrap Error:', err);
     return res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
-};
+}
