@@ -1,19 +1,78 @@
-import { ensureSchema, ensureUser, json, method, sql } from './_db.js';
-export default async function handler(req,res){
-  if(!method(req,res,['POST']))return;
-  try{
-    await ensureSchema(); const userId=await ensureUser(req);
-    const code=String(req.body?.code||'').trim().toUpperCase();
-    if(!code)return json(res,400,{ok:false,error:'Enter a gift code.'});
-    const g=(await sql`SELECT code,amount,active,max_redemptions,redeemed_count FROM gift_codes WHERE code=${code}`)[0];
-    if(!g||!g.active||Number(g.redeemed_count)>=Number(g.max_redemptions))return json(res,400,{ok:false,error:'This gift code is invalid or has already been used.'});
-    const prior=await sql`SELECT 1 FROM gift_redemptions WHERE code=${code} AND user_id=${userId}`;
-    if(prior.length)return json(res,400,{ok:false,error:'You have already redeemed this gift code.'});
-    await sql`INSERT INTO gift_redemptions(code,user_id,amount) VALUES(${code},${userId},${g.amount})`;
-    await sql`UPDATE gift_codes SET redeemed_count=redeemed_count+1 WHERE code=${code}`;
-    const ref=`GIFT-${Date.now()}-${Math.random().toString(36).slice(2,7)}`;
-    await sql`UPDATE app_users SET withdrawal_balance=withdrawal_balance+${g.amount},total_income=total_income+${g.amount},updated_at=NOW() WHERE id=${userId}`;
-    await sql`INSERT INTO transactions(user_id,type,amount,status,reference,detail) VALUES(${userId},'income',${g.amount},'Completed',${ref},'Gift Code')`;
-    return json(res,200,{ok:true,amount:Number(g.amount)});
-  }catch(e){console.error(e);return json(res,500,{ok:false,error:'Gift code could not be redeemed.'});}
-}
+const { pool, getAuthenticatedUser } = require('./_db');
+
+module.exports = async function handler(req, res) {
+  res.setHeader('Content-Type', 'application/json');
+  const user = await getAuthenticatedUser(req);
+  if (!user) {
+    return res.status(401).json({ error: 'Please log in to continue.' });
+  }
+
+  if (req.method === 'POST') {
+    const { code } = req.body || {};
+    if (!code || typeof code !== 'string') {
+      return res.status(400).json({ error: 'Gift code is required.' });
+    }
+
+    const cleanCode = code.trim().toUpperCase();
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const codeRes = await client.query('SELECT * FROM gift_codes WHERE code = $1 FOR UPDATE', [cleanCode]);
+      if (codeRes.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Invalid gift code.' });
+      }
+
+      const gift = codeRes.rows[0];
+      if (gift.used_count >= gift.max_uses) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'This gift code has reached its usage limit.' });
+      }
+
+      const alreadyUsed = await client.query(
+        'SELECT id FROM gift_code_redemptions WHERE code_id = $1 AND user_id = $2',
+        [gift.id, user.id]
+      );
+
+      if (alreadyUsed.rows.length > 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'You have already redeemed this gift code.' });
+      }
+
+      await client.query(
+        'INSERT INTO gift_code_redemptions (code_id, user_id, amount) VALUES ($1, $2, $3)',
+        [gift.id, user.id, gift.amount]
+      );
+
+      await client.query(
+        'UPDATE gift_codes SET used_count = used_count + 1 WHERE id = $1',
+        [gift.id]
+      );
+
+      await client.query(
+        'UPDATE users SET balance = balance + $1 WHERE id = $2',
+        [gift.amount, user.id]
+      );
+
+      await client.query(
+        `INSERT INTO transactions (user_id, type, title, amount, direction)
+         VALUES ($1, 'Bonus', 'Gift Code Reward', $2, 'in')`,
+        [user.id, gift.amount]
+      );
+
+      await client.query('COMMIT');
+      return res.status(200).json({
+        success: true,
+        message: `Successfully redeemed ${gift.amount} reward!`
+      });
+    } catch {
+      await client.query('ROLLBACK');
+      return res.status(500).json({ error: 'Something went wrong. Please try again.' });
+    } finally {
+      client.release();
+    }
+  }
+
+  return res.status(405).json({ error: 'Method not allowed.' });
+};
