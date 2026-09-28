@@ -8,7 +8,35 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="app-shell">
+  <div id="authView" class="auth-view">
+  <div class="auth-card">
+    <div class="auth-brand">NovaVest</div>
+    <p class="auth-kicker">Secure account access</p>
+    <div id="loginPanel" class="auth-panel">
+      <h1>Welcome back</h1><p>Log in to continue to your NovaVest account.</p>
+      <form id="loginForm">
+        <label>Email address</label><input class="text-input" id="loginEmail" type="email" autocomplete="email" placeholder="Enter your email" required>
+        <label>Password</label><div class="password-wrap"><input class="text-input" id="loginPassword" type="password" autocomplete="current-password" placeholder="Enter your password" required><button type="button" class="password-toggle" data-toggle-password="loginPassword">Show</button></div>
+        <button class="full-btn big" type="submit">Log in</button>
+      </form>
+      <p class="auth-switch">Don't have an account? <button type="button" data-auth-switch="register">Create one</button></p>
+    </div>
+    <div id="registerPanel" class="auth-panel hidden">
+      <h1>Create account</h1><p>Register your own account to keep your balance, purchases and history separate.</p>
+      <form id="registerForm">
+        <label>Full name</label><input class="text-input" id="registerName" autocomplete="name" placeholder="Enter your full name" required>
+        <label>Email address</label><input class="text-input" id="registerEmail" type="email" autocomplete="email" placeholder="Enter your email" required>
+        <label>Password</label><div class="password-wrap"><input class="text-input" id="registerPassword" type="password" autocomplete="new-password" placeholder="At least 8 characters" required><button type="button" class="password-toggle" data-toggle-password="registerPassword">Show</button></div>
+        <label>Confirm password</label><div class="password-wrap"><input class="text-input" id="registerConfirm" type="password" autocomplete="new-password" placeholder="Repeat your password" required><button type="button" class="password-toggle" data-toggle-password="registerConfirm">Show</button></div>
+        <label>Referral code <span class="optional">(optional)</span></label><input class="text-input" id="registerReferral" autocomplete="off" placeholder="e.g. NOVA-AB12CD34">
+        <button class="full-btn big" type="submit">Create account</button>
+      </form>
+      <p class="auth-switch">Already have an account? <button type="button" data-auth-switch="login">Log in</button></p>
+    </div>
+  </div>
+</div>
+
+<div class="app-shell is-hidden">
     <header class="topbar">
       <div>
         <div class="brand">NovaVest</div>
@@ -91,8 +119,8 @@
 
         <div class="profile-identity">
           <div class="avatar large">N</div>
-          <div><span class="identity-label">Account holder</span><strong>Nova User</strong><span>demo@example.com</span></div>
-          <button class="identity-more" data-toast="Account identity will be connected to login later.">•••</button>
+          <div><span class="identity-label">Account holder</span><strong id="profileName">Nova User</strong><span id="profileEmail">demo@example.com</span></div>
+          <button class="identity-more" id="logoutBtn" type="button">Logout</button>
         </div>
 
         <div class="profile-balance-grid">
