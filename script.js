@@ -203,12 +203,15 @@ function selectChannel(channelId) {
 }
 
 // Copy Bank Account
-document.getElementById('btn-copy-account').addEventListener('click', () => {
-  if (!selectedChannel) return;
-  navigator.clipboard.writeText(selectedChannel.account_number).then(() => {
-    showToast('Account number copied!');
+const copyAccBtn = document.getElementById('btn-copy-account');
+if (copyAccBtn) {
+  copyAccBtn.addEventListener('click', () => {
+    if (!selectedChannel) return;
+    navigator.clipboard.writeText(selectedChannel.account_number).then(() => {
+      showToast('Account number copied!');
+    });
   });
-});
+}
 
 // Predefined Recharge Amount buttons
 document.querySelectorAll('.amount-btn').forEach(btn => {
@@ -220,32 +223,35 @@ document.querySelectorAll('.amount-btn').forEach(btn => {
 });
 
 // Confirm Recharge Submission
-document.getElementById('btn-confirm-recharge').addEventListener('click', async () => {
-  const amount = document.getElementById('recharge-amount-input').value;
-  const sender_name = document.getElementById('recharge-sender-name').value;
+const confirmRechargeBtn = document.getElementById('btn-confirm-recharge');
+if (confirmRechargeBtn) {
+  confirmRechargeBtn.addEventListener('click', async () => {
+    const amount = document.getElementById('recharge-amount-input').value;
+    const sender_name = document.getElementById('recharge-sender-name').value;
 
-  if (!selectedChannel) {
-    return showToast('Please select a payment channel.');
-  }
+    if (!selectedChannel) {
+      return showToast('Please select a payment channel.');
+    }
 
-  try {
-    const res = await fetchAPI('/api/deposit', {
-      method: 'POST',
-      body: {
-        amount,
-        channel_id: selectedChannel.id,
-        sender_name
-      }
-    });
+    try {
+      const res = await fetchAPI('/api/deposit', {
+        method: 'POST',
+        body: {
+          amount,
+          channel_id: selectedChannel.id,
+          sender_name
+        }
+      });
 
-    showToast(res.message);
-    document.getElementById('recharge-sender-name').value = '';
-    await loadInitialData();
-    switchView('home');
-  } catch (err) {
-    showToast(err.message);
-  }
-});
+      showToast(res.message);
+      document.getElementById('recharge-sender-name').value = '';
+      await loadInitialData();
+      switchView('home');
+    } catch (err) {
+      showToast(err.message);
+    }
+  });
+}
 
 // Dedicated Withdrawal Page
 function openWithdrawPage() {
@@ -270,41 +276,47 @@ function openWithdrawPage() {
   switchView('withdrawal');
 }
 
-document.getElementById('btn-submit-withdraw').addEventListener('click', async () => {
-  const amount = document.getElementById('input-withdraw-amount').value;
-  try {
-    const res = await fetchAPI('/api/withdraw', {
-      method: 'POST',
-      body: { amount }
-    });
-    showToast(res.message);
-    document.getElementById('input-withdraw-amount').value = '';
-    await loadInitialData();
-    switchView('home');
-  } catch (err) {
-    showToast(err.message);
-  }
-});
+const submitWithdrawBtn = document.getElementById('btn-submit-withdraw');
+if (submitWithdrawBtn) {
+  submitWithdrawBtn.addEventListener('click', async () => {
+    const amount = document.getElementById('input-withdraw-amount').value;
+    try {
+      const res = await fetchAPI('/api/withdraw', {
+        method: 'POST',
+        body: { amount }
+      });
+      showToast(res.message);
+      document.getElementById('input-withdraw-amount').value = '';
+      await loadInitialData();
+      switchView('home');
+    } catch (err) {
+      showToast(err.message);
+    }
+  });
+}
 
 // Dedicated Bank Card Page Form
-document.getElementById('form-dedicated-bank').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const bank_name = document.getElementById('bank-input-name').value;
-  const account_number = document.getElementById('bank-input-number').value;
-  const account_name = document.getElementById('bank-input-holder').value;
+const bankForm = document.getElementById('form-dedicated-bank');
+if (bankForm) {
+  bankForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const bank_name = document.getElementById('bank-input-name').value;
+    const account_number = document.getElementById('bank-input-number').value;
+    const account_name = document.getElementById('bank-input-holder').value;
 
-  try {
-    const res = await fetchAPI('/api/bank', {
-      method: 'POST',
-      body: { bank_name, account_number, account_name }
-    });
-    showToast(res.message);
-    await loadInitialData();
-    switchView('profile');
-  } catch (err) {
-    showToast(err.message);
-  }
-});
+    try {
+      const res = await fetchAPI('/api/bank', {
+        method: 'POST',
+        body: { bank_name, account_number, account_name }
+      });
+      showToast(res.message);
+      await loadInitialData();
+      switchView('profile');
+    } catch (err) {
+      showToast(err.message);
+    }
+  });
+}
 
 // History Renderers
 function renderDedicatedHistory(title, items, type) {
@@ -360,15 +372,28 @@ async function loadInitialData() {
     userTransactions = data.transactions || [];
 
     if (currentBank) {
-      document.getElementById('bank-input-name').value = currentBank.bank_name || '';
-      document.getElementById('bank-input-number').value = currentBank.account_number || '';
-      document.getElementById('bank-input-holder').value = currentBank.account_name || '';
+      const bName = document.getElementById('bank-input-name');
+      const bNum = document.getElementById('bank-input-number');
+      const bHold = document.getElementById('bank-input-holder');
+      if (bName) bName.value = currentBank.bank_name || '';
+      if (bNum) bNum.value = currentBank.account_number || '';
+      if (bHold) bHold.value = currentBank.account_name || '';
     }
 
     renderDashboard();
 
     document.getElementById('auth-container').style.display = 'none';
     document.getElementById('app-container').style.display = 'block';
+
+    // Show Impersonation Bar if an admin key is present in localStorage
+    const impersonationBar = document.getElementById('impersonation-bar');
+    if (impersonationBar) {
+      if (localStorage.getItem('nv_admin_key')) {
+        impersonationBar.style.display = 'flex';
+      } else {
+        impersonationBar.style.display = 'none';
+      }
+    }
 
     loadTeam();
   } catch (err) {
@@ -380,8 +405,12 @@ async function loadInitialData() {
 async function loadTeam() {
   try {
     const data = await fetchAPI('/api/team');
-    document.getElementById('team-count').innerText = data.team_count || 0;
+    const teamCountEl = document.getElementById('team-count');
+    if (teamCountEl) teamCountEl.innerText = data.team_count || 0;
+    
     const list = document.getElementById('team-members-list');
+    if (!list) return;
+
     if (!data.members || !data.members.length) {
       list.innerHTML = '<div class="empty-state">No team members invited yet.</div>';
       return;
@@ -399,40 +428,61 @@ async function loadTeam() {
 }
 
 // Navigation & Actions
-document.getElementById('btn-nav-recharge').addEventListener('click', openRechargePage);
-document.getElementById('btn-nav-withdraw').addEventListener('click', openWithdrawPage);
-document.getElementById('btn-nav-bank').addEventListener('click', () => switchView('bank-card'));
-document.getElementById('btn-nav-gift').addEventListener('click', () => {
-  document.getElementById('modal-gift').classList.add('open');
-});
+const btnRecharge = document.getElementById('btn-nav-recharge');
+if (btnRecharge) btnRecharge.addEventListener('click', openRechargePage);
 
-document.getElementById('menu-bank-card').addEventListener('click', () => switchView('bank-card'));
-document.getElementById('menu-dep-history').addEventListener('click', async () => {
-  try {
-    const res = await fetchAPI('/api/deposit');
-    renderDedicatedHistory('Deposit History', res.deposits, 'deposit');
-  } catch {
-    renderDedicatedHistory('Deposit History', userDeposits, 'deposit');
-  }
-});
+const btnWithdraw = document.getElementById('btn-nav-withdraw');
+if (btnWithdraw) btnWithdraw.addEventListener('click', openWithdrawPage);
 
-document.getElementById('menu-with-history').addEventListener('click', async () => {
-  try {
-    const res = await fetchAPI('/api/withdraw');
-    renderDedicatedHistory('Withdrawal History', res.withdrawals, 'withdraw');
-  } catch {
-    renderDedicatedHistory('Withdrawal History', userWithdrawals, 'withdraw');
-  }
-});
+const btnBank = document.getElementById('btn-nav-bank');
+if (btnBank) btnBank.addEventListener('click', () => switchView('bank-card'));
 
-document.getElementById('menu-tx-history').addEventListener('click', async () => {
-  try {
-    const res = await fetchAPI('/api/transactions');
-    renderDedicatedHistory('Transaction History', res.transactions, 'tx');
-  } catch {
-    renderDedicatedHistory('Transaction History', userTransactions, 'tx');
-  }
-});
+const btnGift = document.getElementById('btn-nav-gift');
+if (btnGift) {
+  btnGift.addEventListener('click', () => {
+    const modal = document.getElementById('modal-gift');
+    if (modal) modal.classList.add('open');
+  });
+}
+
+const menuBank = document.getElementById('menu-bank-card');
+if (menuBank) menuBank.addEventListener('click', () => switchView('bank-card'));
+
+const menuDep = document.getElementById('menu-dep-history');
+if (menuDep) {
+  menuDep.addEventListener('click', async () => {
+    try {
+      const res = await fetchAPI('/api/deposit');
+      renderDedicatedHistory('Deposit History', res.deposits, 'deposit');
+    } catch {
+      renderDedicatedHistory('Deposit History', userDeposits, 'deposit');
+    }
+  });
+}
+
+const menuWith = document.getElementById('menu-with-history');
+if (menuWith) {
+  menuWith.addEventListener('click', async () => {
+    try {
+      const res = await fetchAPI('/api/withdraw');
+      renderDedicatedHistory('Withdrawal History', res.withdrawals, 'withdraw');
+    } catch {
+      renderDedicatedHistory('Withdrawal History', userWithdrawals, 'withdraw');
+    }
+  });
+}
+
+const menuTx = document.getElementById('menu-tx-history');
+if (menuTx) {
+  menuTx.addEventListener('click', async () => {
+    try {
+      const res = await fetchAPI('/api/transactions');
+      renderDedicatedHistory('Transaction History', res.transactions, 'tx');
+    } catch {
+      renderDedicatedHistory('Transaction History', userTransactions, 'tx');
+    }
+  });
+}
 
 // Modal close
 document.querySelectorAll('.modal-close').forEach(btn => {
@@ -449,71 +499,97 @@ document.querySelectorAll('.nav-item').forEach(btn => {
 });
 
 // Referral Code Copy
-document.getElementById('btn-copy-code').addEventListener('click', () => {
-  if (!currentUser || !currentUser.referral_code) return;
-  const link = `${window.location.origin}?ref=${currentUser.referral_code}`;
-  navigator.clipboard.writeText(link).then(() => {
-    showToast('Referral link copied to clipboard!');
+const copyCodeBtn = document.getElementById('btn-copy-code');
+if (copyCodeBtn) {
+  copyCodeBtn.addEventListener('click', () => {
+    if (!currentUser || !currentUser.referral_code) return;
+    const link = `${window.location.origin}?ref=${currentUser.referral_code}`;
+    navigator.clipboard.writeText(link).then(() => {
+      showToast('Referral link copied to clipboard!');
+    });
   });
-});
+}
+
+// Return to Admin button handler
+const returnBtn = document.getElementById('btn-return-admin');
+if (returnBtn) {
+  returnBtn.addEventListener('click', () => {
+    window.location.href = '/admin.html';
+  });
+}
 
 // Auth Handlers
-document.getElementById('link-show-register').addEventListener('click', (e) => {
-  e.preventDefault();
-  document.getElementById('login-form').style.display = 'none';
-  document.getElementById('register-form').style.display = 'block';
-  document.getElementById('auth-subtitle').innerText = 'Create your account';
-});
+const showRegLink = document.getElementById('link-show-register');
+if (showRegLink) {
+  showRegLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    document.getElementById('login-form').style.display = 'none';
+    document.getElementById('register-form').style.display = 'block';
+    document.getElementById('auth-subtitle').innerText = 'Create your account';
+  });
+}
 
-document.getElementById('link-show-login').addEventListener('click', (e) => {
-  e.preventDefault();
-  document.getElementById('register-form').style.display = 'none';
-  document.getElementById('login-form').style.display = 'block';
-  document.getElementById('auth-subtitle').innerText = 'Log in to your account';
-});
+const showLoginLink = document.getElementById('link-show-login');
+if (showLoginLink) {
+  showLoginLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    document.getElementById('register-form').style.display = 'none';
+    document.getElementById('login-form').style.display = 'block';
+    document.getElementById('auth-subtitle').innerText = 'Log in to your account';
+  });
+}
 
-document.getElementById('register-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const phone = document.getElementById('reg-phone').value;
-  const password = document.getElementById('reg-password').value;
-  const confirm = document.getElementById('reg-confirm-password').value;
-  const ref = new URLSearchParams(window.location.search).get('ref') || '';
+const regForm = document.getElementById('register-form');
+if (regForm) {
+  regForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const phone = document.getElementById('reg-phone').value;
+    const password = document.getElementById('reg-password').value;
+    const confirm = document.getElementById('reg-confirm-password').value;
+    const ref = new URLSearchParams(window.location.search).get('ref') || '';
 
-  try {
-    const res = await fetchAPI('/api/auth?action=register', {
-      method: 'POST',
-      body: { phone_number: phone, password, confirm_password: confirm, ref }
-    });
-    if (res.token) localStorage.setItem('nv_token', res.token);
-    showToast('Registration successful!');
-    await loadInitialData();
-  } catch (err) {
-    showToast(err.message);
-  }
-});
+    try {
+      const res = await fetchAPI('/api/auth?action=register', {
+        method: 'POST',
+        body: { phone_number: phone, password, confirm_password: confirm, ref }
+      });
+      if (res.token) localStorage.setItem('nv_token', res.token);
+      showToast('Registration successful!');
+      await loadInitialData();
+    } catch (err) {
+      showToast(err.message);
+    }
+  });
+}
 
-document.getElementById('login-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const phone = document.getElementById('login-phone').value;
-  const password = document.getElementById('login-password').value;
+const loginForm = document.getElementById('login-form');
+if (loginForm) {
+  loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const phone = document.getElementById('login-phone').value;
+    const password = document.getElementById('login-password').value;
 
-  try {
-    const res = await fetchAPI('/api/auth?action=login', {
-      method: 'POST',
-      body: { phone_number: phone, password }
-    });
-    if (res.token) localStorage.setItem('nv_token', res.token);
-    showToast('Login successful!');
-    await loadInitialData();
-  } catch (err) {
-    showToast(err.message);
-  }
-});
+    try {
+      const res = await fetchAPI('/api/auth?action=login', {
+        method: 'POST',
+        body: { phone_number: phone, password }
+      });
+      if (res.token) localStorage.setItem('nv_token', res.token);
+      showToast('Login successful!');
+      await loadInitialData();
+    } catch (err) {
+      showToast(err.message);
+    }
+  });
+}
 
-document.getElementById('btn-logout').addEventListener('click', async () => {
-  localStorage.removeItem('nv_token');
-  try { await fetchAPI('/api/auth?action=logout'); } catch {}
-  window.location.reload();
-});
+const logoutBtn = document.getElementById('btn-logout');
+if (logoutBtn) {
+  logoutBtn.addEventListener('click', async () => {
+    localStorage.removeItem('nv_token');
+    try { await fetchAPI('/api/auth?action=logout'); } catch {}
+    window.location.reload();
+  });
+}
 
 loadInitialData();
