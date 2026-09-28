@@ -1,4 +1,4 @@
-import { sql } from './_db.js';
+import { sql, hashPassword, createSessionToken } from './_db.js';
 
 const ADMIN_KEY = process.env.ADMIN_SECRET || 'novavest_admin_2026';
 
@@ -17,7 +17,257 @@ export default async function handler(req, res) {
   const action = req.query.action || (req.body && req.body.action);
 
   try {
-    // 1. DASHBOARD METRICS
+    // -------------------------------------------------------------
+    // 1. GET ALL USERS (List View)
+    // -------------------------------------------------------------
+    if (action === 'users' && req.method === 'GET') {
+      const users = await sql`
+        SELECT 
+          u.id, 
+          u.phone_number, 
+          u.referral_code, 
+          u.balance AS deposit_balance, 
+          u.withdrawable_balance, 
+          (u.balance + u.withdrawable_balance) AS total_balance,
+          u.is_banned, 
+          u.is_promoter, 
+          u.withdraw_without_package, 
+          u.created_at
+        FROM users u
+        ORDER BY u.created_at DESC
+      `;
+      return res.status(200).json({ success: true, users });
+    }
+
+    // -------------------------------------------------------------
+    // 2. GET SINGLE USER FULL PROFILE (Action View)
+    // -------------------------------------------------------------
+    if (action === 'user-detail' && req.method === 'GET') {
+      const userId = parseInt(req.query.user_id, 10);
+      if (!userId) return res.status(400).json({ error: 'User ID is required.' });
+
+      const userRows = await sql`
+        SELECT 
+          u.id, 
+          u.phone_number, 
+          u.referral_code, 
+          u.referred_by,
+          u.balance AS deposit_balance, 
+          u.withdrawable_balance, 
+          (u.balance + u.withdrawable_balance) AS total_balance,
+          u.is_banned, 
+          u.is_promoter, 
+          u.withdraw_without_package, 
+          u.created_at,
+          b.bank_name, 
+          b.account_number, 
+          b.account_name
+        FROM users u
+        LEFT JOIN bank_cards b ON u.id = b.user_id
+        WHERE u.id = ${userId}
+      `;
+
+      if (!userRows.length) return res.status(404).json({ error: 'User not found.' });
+      const user = userRows[0];
+
+      // Calculate separate historical totals
+      const [depSum, withSum] = await Promise.all([
+        sql`SELECT COALESCE(SUM(amount), 0)::numeric AS sum FROM deposits WHERE user_id = ${userId} AND status = 'Approved'`,
+        sql`SELECT COALESCE(SUM(amount), 0)::numeric AS sum FROM withdrawals WHERE user_id = ${userId} AND status = 'Approved'`
+      ]);
+
+      const [deposits, withdrawals, purchases, logs] = await Promise.all([
+        sql`SELECT * FROM deposits WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT 50`,
+        sql`SELECT * FROM withdrawals WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT 50`,
+        sql`SELECT * FROM purchases WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT 50`,
+        sql`SELECT * FROM admin_audit_logs WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT 50`
+      ]);
+
+      return res.status(200).json({
+        success: true,
+        user: {
+          ...user,
+          total_deposited: depSum[0]?.sum || 0,
+          total_withdrawn: withSum[0]?.sum || 0
+        },
+        deposits,
+        withdrawals,
+        purchases,
+        logs
+      });
+    }
+
+    // -------------------------------------------------------------
+    // 3. BALANCE ADJUSTMENT (Add / Subtract from Deposit or Withdrawal)
+    // -------------------------------------------------------------
+    if (action === 'adjust-balance' && req.method === 'POST') {
+      const { user_id, wallet_type, direction, amount } = req.body;
+      const numAmount = parseFloat(amount);
+
+      if (!user_id || isNaN(numAmount) || numAmount <= 0) {
+        return res.status(400).json({ error: 'Valid positive amount is required.' });
+      }
+      if (!['deposit', 'withdrawal'].includes(wallet_type)) {
+        return res.status(400).json({ error: 'Invalid wallet type specified.' });
+      }
+      if (!['add', 'subtract'].includes(direction)) {
+        return res.status(400).json({ error: 'Invalid operation direction.' });
+      }
+
+      const userRows = await sql`SELECT balance, withdrawable_balance FROM users WHERE id = ${user_id}`;
+      if (!userRows.length) return res.status(404).json({ error: 'User not found.' });
+
+      const currentBalance = parseFloat(
+        wallet_type === 'deposit' ? userRows[0].balance : userRows[0].withdrawable_balance
+      );
+
+      if (direction === 'subtract' && currentBalance < numAmount) {
+        return res.status(400).json({
+          error: `Insufficient balance for this deduction. Current ${wallet_type} balance is ₦${currentBalance.toLocaleString()}.`
+        });
+      }
+
+      const signedDelta = direction === 'add' ? numAmount : -numAmount;
+
+      if (wallet_type === 'deposit') {
+        await sql`UPDATE users SET balance = balance + ${signedDelta} WHERE id = ${user_id}`;
+      } else {
+        await sql`UPDATE users SET withdrawable_balance = withdrawable_balance + ${signedDelta} WHERE id = ${user_id}`;
+      }
+
+      const txTitle = `Admin Adjustment (${direction.toUpperCase()} ${wallet_type.toUpperCase()} WALLET)`;
+      await sql`
+        INSERT INTO transactions (user_id, type, title, amount, direction)
+        VALUES (${user_id}, 'Admin Adjustment', ${txTitle}, ${numAmount}, ${direction === 'add' ? 'in' : 'out'})
+      `;
+
+      await sql`
+        INSERT INTO admin_audit_logs (user_id, action_type, details)
+        VALUES (${user_id}, 'BALANCE_ADJUST', ${`${direction.toUpperCase()} ₦${numAmount.toLocaleString()} to${wallet_type} wallet`})
+      `;
+
+      return res.status(200).json({
+        success: true,
+        message: `${wallet_type === 'deposit' ? 'Deposit' : 'Withdrawal'} balance successfully ${direction === 'add' ? 'increased' : 'decreased'} by ₦${numAmount.toLocaleString()}.`
+      });
+    }
+
+    // -------------------------------------------------------------
+    // 4. PASSWORD RESET (Defaults to 1234)
+    // -------------------------------------------------------------
+    if (action === 'reset-password' && req.method === 'POST') {
+      const { user_id } = req.body;
+      if (!user_id) return res.status(400).json({ error: 'User ID is required.' });
+
+      const newHash = hashPassword('1234');
+      const result = await sql`
+        UPDATE users SET password_hash = ${newHash} WHERE id = ${user_id} RETURNING id, phone_number
+      `;
+
+      if (!result.length) return res.status(404).json({ error: 'User not found.' });
+
+      await sql`
+        INSERT INTO admin_audit_logs (user_id, action_type, details)
+        VALUES (${user_id}, 'PASSWORD_RESET', 'Password reset to default (1234)')
+      `;
+
+      return res.status(200).json({
+        success: true,
+        message: 'Password reset successfully. Default password: 1234'
+      });
+    }
+
+    // -------------------------------------------------------------
+    // 5. BAN / UNBAN TOGGLE
+    // -------------------------------------------------------------
+    if (action === 'toggle-ban' && req.method === 'POST') {
+      const { user_id } = req.body;
+      if (!user_id) return res.status(400).json({ error: 'User ID is required.' });
+
+      const result = await sql`
+        UPDATE users SET is_banned = NOT is_banned WHERE id = ${user_id} RETURNING is_banned
+      `;
+      if (!result.length) return res.status(404).json({ error: 'User not found.' });
+
+      const isBanned = result[0].is_banned;
+      await sql`
+        INSERT INTO admin_audit_logs (user_id, action_type, details)
+        VALUES (${user_id}, ${isBanned ? 'USER_BAN' : 'USER_UNBAN'}, ${isBanned ? 'Account banned by admin' : 'Account unbanned by admin'})
+      `;
+
+      return res.status(200).json({
+        success: true,
+        is_banned: isBanned,
+        message: isBanned ? 'User has been banned.' : 'User account has been restored.'
+      });
+    }
+
+    // -------------------------------------------------------------
+    // 6. TOGGLE PROMOTER / PACKAGE WITHDRAWAL RULE
+    // -------------------------------------------------------------
+    if (action === 'toggle-package-rule' && req.method === 'POST') {
+      const { user_id } = req.body;
+      const result = await sql`
+        UPDATE users SET withdraw_without_package = NOT withdraw_without_package WHERE id = ${user_id} RETURNING withdraw_without_package
+      `;
+      return res.status(200).json({ success: true, enabled: result[0]?.withdraw_without_package });
+    }
+
+    if (action === 'toggle-promoter' && req.method === 'POST') {
+      const { user_id } = req.body;
+      const result = await sql`
+        UPDATE users SET is_promoter = NOT is_promoter WHERE id = ${user_id} RETURNING is_promoter
+      `;
+      return res.status(200).json({ success: true, is_promoter: result[0]?.is_promoter });
+    }
+
+    // -------------------------------------------------------------
+    // 7. LOGIN AS USER / IMPERSONATION
+    // -------------------------------------------------------------
+    if (action === 'impersonate' && req.method === 'POST') {
+      const { user_id } = req.body;
+      const userRows = await sql`SELECT id, phone_number FROM users WHERE id = ${user_id}`;
+      if (!userRows.length) return res.status(404).json({ error: 'User not found.' });
+
+      const token = createSessionToken(userRows[0].id);
+
+      await sql`
+        INSERT INTO admin_audit_logs (user_id, action_type, details)
+        VALUES (${user_id}, 'ADMIN_IMPERSONATION', 'Admin logged into account')
+      `;
+
+      // Set session cookie for the client
+      res.setHeader('Set-Cookie', `novavest_session=${token}; HttpOnly; Path=/; Max-Age=3600; SameSite=Lax; Secure`);
+
+      return res.status(200).json({
+        success: true,
+        token,
+        message: `Impersonation session created for ${userRows[0].phone_number}.`
+      });
+    }
+
+    // -------------------------------------------------------------
+    // 8. DELETE USER (Cascading Deletion)
+    // -------------------------------------------------------------
+    if (action === 'delete-user' && req.method === 'POST') {
+      const { user_id } = req.body;
+      if (!user_id) return res.status(400).json({ error: 'User ID is required.' });
+
+      // Clean all references sequentially if DB CASCADE was not pre-applied
+      await sql`DELETE FROM admin_audit_logs WHERE user_id = ${user_id}`;
+      await sql`DELETE FROM transactions WHERE user_id = ${user_id}`;
+      await sql`DELETE FROM purchases WHERE user_id = ${user_id}`;
+      await sql`DELETE FROM withdrawals WHERE user_id = ${user_id}`;
+      await sql`DELETE FROM deposits WHERE user_id = ${user_id}`;
+      await sql`DELETE FROM bank_cards WHERE user_id = ${user_id}`;
+      const deleted = await sql`DELETE FROM users WHERE id = ${user_id} RETURNING id`;
+
+      if (!deleted.length) return res.status(404).json({ error: 'User not found.' });
+
+      return res.status(200).json({ success: true, message: 'User has been deleted.' });
+    }
+
+    // Retain Dashboard Metrics
     if (action === 'dashboard') {
       const [users, deposits, purchases, withdrawals, pendingDep, pendingWith] = await Promise.all([
         sql`SELECT COUNT(*)::int as count, COALESCE(SUM(balance), 0)::numeric as total_bal FROM users`,
@@ -34,11 +284,8 @@ export default async function handler(req, res) {
           total_users: users[0]?.count || 0,
           total_balance: users[0]?.total_bal || 0,
           total_deposits: deposits[0]?.sum || 0,
-          deposits_count: deposits[0]?.count || 0,
           total_investment: purchases[0]?.sum || 0,
-          investment_count: purchases[0]?.count || 0,
           total_payouts: withdrawals[0]?.sum || 0,
-          payouts_count: withdrawals[0]?.count || 0,
           platform_profit: withdrawals[0]?.fees || 0,
           pending_withdrawals: pendingWith[0]?.sum || 0,
           pending_deposits: pendingDep[0]?.sum || 0
@@ -46,191 +293,9 @@ export default async function handler(req, res) {
       });
     }
 
-    // 2. USER MANAGEMENT
-    if (action === 'users') {
-      const users = await sql`
-        SELECT u.id, u.phone_number, u.balance, u.withdrawable_balance, u.total_income, u.total_withdrawn,
-               u.referral_code, u.is_banned, u.withdraw_without_package, u.is_promoter, u.created_at,
-               b.bank_name, b.account_number, b.account_name
-        FROM users u
-        LEFT JOIN bank_cards b ON u.id = b.user_id
-        ORDER BY u.created_at DESC LIMIT 150
-      `;
-      return res.status(200).json({ success: true, users });
-    }
-
-    // 3. USER ACTIONS (Adjust balance, Ban, Toggle package requirement)
-    if (action === 'user-action' && req.method === 'POST') {
-      const { user_id, op, amount, wallet_type } = req.body;
-      if (op === 'ban') {
-        await sql`UPDATE users SET is_banned = NOT is_banned WHERE id = ${user_id}`;
-        return res.status(200).json({ success: true, message: 'User ban status toggled.' });
-      }
-      if (op === 'toggle-package') {
-        await sql`UPDATE users SET withdraw_without_package = NOT withdraw_without_package WHERE id = ${user_id}`;
-        return res.status(200).json({ success: true, message: 'Package withdrawal rule updated.' });
-      }
-      if (op === 'adjust') {
-        const val = parseFloat(amount);
-        if (isNaN(val) || val <= 0) return res.status(400).json({ error: 'Invalid adjustment amount' });
-        const col = wallet_type === 'withdrawable' ? 'withdrawable_balance' : 'balance';
-        
-        await sql`UPDATE users SET ${sql(col)} = ${sql(col)} + ${val} WHERE id = ${user_id}`;
-        await sql`
-          INSERT INTO transactions (user_id, type, title, amount, direction)
-          VALUES (${user_id}, 'Admin Adjustment', ${'Admin ' + (val > 0 ? 'Credit' : 'Debit')}, ${Math.abs(val)}, ${val > 0 ? 'in' : 'out'})
-        `;
-        return res.status(200).json({ success: true, message: 'User wallet adjusted successfully.' });
-      }
-    }
-
-    // 4. DEPOSIT REQUESTS REVIEW
-    if (action === 'deposits') {
-      const deposits = await sql`
-        SELECT d.*, u.phone_number, c.name as channel_name 
-        FROM deposits d
-        JOIN users u ON d.user_id = u.id
-        LEFT JOIN payment_channels c ON d.channel_id = c.id
-        ORDER BY d.created_at DESC LIMIT 100
-      `;
-      return res.status(200).json({ success: true, deposits });
-    }
-
-    if (action === 'review-deposit' && req.method === 'POST') {
-      const { deposit_id, decision, admin_note } = req.body;
-      const rows = await sql`SELECT * FROM deposits WHERE id = ${deposit_id}`;
-      if (!rows.length) return res.status(404).json({ error: 'Deposit record not found' });
-      const dep = rows[0];
-
-      if (dep.status !== 'Pending') {
-        return res.status(400).json({ error: 'Deposit already processed' });
-      }
-
-      if (decision === 'approve') {
-        await sql`UPDATE users SET balance = balance + ${dep.amount} WHERE id = ${dep.user_id}`;
-        await sql`
-          UPDATE deposits 
-          SET status = 'Approved', admin_note = ${admin_note || ''}, approved_at = CURRENT_TIMESTAMP
-          WHERE id = ${deposit_id}
-        `;
-        await sql`
-          INSERT INTO transactions (user_id, type, title, amount, direction)
-          VALUES (${dep.user_id}, 'Deposit', ${'Recharge Approved (' + dep.reference + ')'}, ${dep.amount}, 'in')
-        `;
-        return res.status(200).json({ success: true, message: 'Deposit approved and credited.' });
-      } else {
-        await sql`
-          UPDATE deposits 
-          SET status = 'Declined', admin_note = ${admin_note || 'Rejected by Admin'} 
-          WHERE id = ${deposit_id}
-        `;
-        return res.status(200).json({ success: true, message: 'Deposit marked declined.' });
-      }
-    }
-
-    // 5. WITHDRAWAL REQUESTS REVIEW
-    if (action === 'withdrawals') {
-      const withdrawals = await sql`
-        SELECT w.*, u.phone_number 
-        FROM withdrawals w
-        JOIN users u ON w.user_id = u.id
-        ORDER BY w.created_at DESC LIMIT 100
-      `;
-      return res.status(200).json({ success: true, withdrawals });
-    }
-
-    if (action === 'review-withdrawal' && req.method === 'POST') {
-      const { withdrawal_id, decision, admin_note } = req.body;
-      const rows = await sql`SELECT * FROM withdrawals WHERE id = ${withdrawal_id}`;
-      if (!rows.length) return res.status(404).json({ error: 'Withdrawal not found' });
-      const w = rows[0];
-
-      if (w.status !== 'Pending') {
-        return res.status(400).json({ error: 'Withdrawal already processed' });
-      }
-
-      if (decision === 'approve') {
-        await sql`
-          UPDATE withdrawals 
-          SET status = 'Approved', admin_note = ${admin_note || ''}, approved_at = CURRENT_TIMESTAMP
-          WHERE id = ${withdrawal_id}
-        `;
-        return res.status(200).json({ success: true, message: 'Withdrawal approved.' });
-      } else {
-        // Refund reserved funds back to user
-        await sql`
-          UPDATE users 
-          SET withdrawable_balance = withdrawable_balance + ${w.amount},
-              total_withdrawn = total_withdrawn - ${w.amount}
-          WHERE id = ${w.user_id}
-        `;
-        await sql`
-          UPDATE withdrawals 
-          SET status = 'Declined', admin_note = ${admin_note || 'Rejected'}
-          WHERE id = ${withdrawal_id}
-        `;
-        await sql`
-          INSERT INTO transactions (user_id, type, title, amount, direction)
-          VALUES (${w.user_id}, 'Refund', 'Withdrawal Declined (Refunded)', ${w.amount}, 'in')
-        `;
-        return res.status(200).json({ success: true, message: 'Withdrawal declined and refunded.' });
-      }
-    }
-
-    // 6. SETTINGS & RATES
-    if (action === 'settings' && req.method === 'GET') {
-      const rows = await sql`SELECT id, val FROM platform_settings`;
-      const settings = {};
-      rows.forEach(r => { settings[r.id] = r.val; });
-      return res.status(200).json({ success: true, settings });
-    }
-
-    if (action === 'settings' && req.method === 'POST') {
-      const updates = req.body;
-      for (const [key, val] of Object.entries(updates)) {
-        await sql`
-          INSERT INTO platform_settings (id, val) VALUES (${key}, ${String(val)})
-          ON CONFLICT (id) DO UPDATE SET val = ${String(val)}
-        `;
-      }
-      return res.status(200).json({ success: true, message: 'Settings saved successfully.' });
-    }
-
-    // 7. GENERATE GIFT CODE
-    if (action === 'generate-gift-code' && req.method === 'POST') {
-      const { amount, max_claims, expires_in_minutes } = req.body;
-      const code = 'GIFT-' + Math.random().toString(36).substring(2, 8).toUpperCase();
-      const expiresAt = new Date(Date.now() + (parseInt(expires_in_minutes, 10) || 60) * 60000);
-
-      await sql`
-        INSERT INTO gift_codes (code, amount, max_claims, expires_at)
-        VALUES (${code}, ${parseFloat(amount)}, ${parseInt(max_claims, 10) || 1}, ${expiresAt})
-      `;
-      return res.status(200).json({ success: true, code, message: 'Gift code generated.' });
-    }
-
-    // 8. PRODUCTS SYNC
-    if (action === 'products' && req.method === 'GET') {
-      const products = await sql`SELECT * FROM products ORDER BY price ASC`;
-      return res.status(200).json({ success: true, products });
-    }
-
-    if (action === 'update-product' && req.method === 'POST') {
-      const { id, price, daily_income, period_days, status } = req.body;
-      await sql`
-        UPDATE products 
-        SET price = ${parseFloat(price)},
-            daily_income = ${parseFloat(daily_income)},
-            period_days = ${parseInt(period_days, 10)},
-            status = ${status}
-        WHERE id = ${id}
-      `;
-      return res.status(200).json({ success: true, message: 'Product updated successfully.' });
-    }
-
-    return res.status(404).json({ error: 'Action not found' });
+    return res.status(404).json({ error: 'Admin action not found' });
   } catch (err) {
     console.error('Admin API Error:', err);
-    return res.status(500).json({ error: err.message || 'Internal admin error.' });
+    return res.status(500).json({ error: err.message || 'Database error occurred.' });
   }
 }
