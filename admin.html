@@ -27,7 +27,6 @@
     .btn-menu { background: none; border: none; font-size: 22px; cursor: pointer; color: var(--text); }
     .btn-key { background: #e0f2fe; color: var(--primary); border: 1px solid #bae6fd; padding: 6px 14px; border-radius: 6px; font-weight: 600; cursor: pointer; }
 
-    /* Sidebar */
     .sidebar { position: fixed; top: 0; left: -280px; width: 280px; height: 100vh; background: var(--sidebar); color: #fff; z-index: 1100; transition: left 0.3s; padding: 20px; overflow-y: auto; }
     .sidebar.open { left: 0; }
     .sidebar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; padding-bottom: 12px; border-bottom: 1px solid #334155; }
@@ -42,7 +41,6 @@
     .tab-content { display: none; }
     .tab-content.active { display: block; }
 
-    /* Dashboard Metrics Cards */
     .stat-card { border-radius: 14px; padding: 18px; color: #fff; margin-bottom: 14px; box-shadow: 0 4px 10px rgba(0,0,0,0.06); }
     .stat-card.dark { background: #064e3b; }
     .stat-card.green { background: #059669; }
@@ -54,7 +52,6 @@
     .stat-val { font-size: 26px; font-weight: 800; margin: 6px 0; }
     .stat-meta { font-size: 12px; opacity: 0.85; }
 
-    /* User Management Styles */
     .search-bar { width: 100%; padding: 12px 16px; border: 1px solid var(--border); border-radius: 12px; background: #fff; margin-bottom: 16px; outline: none; font-size: 14px; }
     .user-card { background: #fff; border: 1px solid var(--border); border-radius: 16px; padding: 18px; margin-bottom: 16px; box-shadow: 0 2px 6px rgba(0,0,0,0.02); }
     .user-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
@@ -70,12 +67,6 @@
     .pill-dark { background: #0f172a; color: #fff; }
     .pill-red { background: #fee2e2; color: #b91c1c; }
 
-    .toggle-package-box { background: var(--pill-bg); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-    .toggle-package-box span { font-size: 13px; font-weight: 600; }
-    .toggle-package-box small { display: block; font-size: 11px; font-weight: 700; }
-    .text-active { color: var(--success); }
-    .text-inactive { color: var(--danger); }
-
     .balance-adjust-panel { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 14px; }
     .adjust-inputs { display: flex; gap: 8px; margin-bottom: 10px; }
     .adjust-inputs input { flex: 1; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; outline: none; }
@@ -86,18 +77,9 @@
 
     .user-balance-summary { background: #f8fafc; border-radius: 14px; padding: 16px; border: 1px solid var(--border); margin-bottom: 14px; }
     .bal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
-    .bal-item .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .bal-item .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; }
     .bal-item .val { font-size: 18px; font-weight: 800; color: #0f172a; margin-top: 2px; }
-    .bal-divider { border-top: 1px dashed var(--border); margin: 10px 0; }
 
-    .user-subtabs { display: flex; border-bottom: 1px solid var(--border); gap: 12px; margin-bottom: 12px; overflow-x: auto; }
-    .subtab-btn { background: none; border: none; padding: 8px 4px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; }
-    .subtab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
-    .sub-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-size: 12px; }
-    .sub-item:last-child { border-bottom: none; }
-    .sub-badge { padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; }
-
-    /* Request Cards */
     .req-card { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 16px; margin-bottom: 14px; box-shadow: 0 2px 4px rgba(0,0,0,0.03); }
     .req-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
     .badge-ref { background: #e0f2fe; color: var(--primary); font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 6px; }
@@ -114,28 +96,18 @@
     .btn-action { flex: 1; padding: 10px; border-radius: 8px; border: none; font-weight: 700; font-size: 13px; cursor: pointer; }
     .btn-approve { background: #dcfce7; color: #166534; }
     .btn-decline { background: #fee2e2; color: #991b1b; }
-    .btn-preview-slip { display: inline-flex; align-items: center; gap: 6px; background: #f1f5f9; color: #0284c7; border: 1px solid #cbd5e1; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; margin-bottom: 8px; }
 
-    /* Configuration Forms */
-    .setting-card { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 18px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
-    .setting-card h3 { font-size: 16px; margin-bottom: 4px; }
-    .setting-card p { font-size: 12px; color: var(--muted); margin-bottom: 14px; }
+    .setting-card { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 18px; margin-bottom: 16px; }
     .form-group { margin-bottom: 14px; }
     .form-group label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
     .form-group input, .form-group select { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; outline: none; }
     .btn-save { background: #0284c7; color: #fff; border: none; padding: 10px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; }
 
-    /* Product Card Grid */
     .product-mgmt-card { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 16px; margin-bottom: 16px; }
-    .prod-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
-    .prod-title { font-weight: 800; font-size: 16px; color: #0f172a; }
     .prod-grid-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
-    .prod-actions-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 10px; }
-    .btn-sync { background: #0284c7; color: #fff; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+    .btn-sync { background: #0284c7; color: #fff; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 700; cursor: pointer; }
 
-    /* Switch Style for Global Withdrawal */
     .switch-wrap { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; background: #f8fafc; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 14px; }
-    .switch-label { font-size: 14px; font-weight: 700; }
     .switch-status-text { font-size: 12px; font-weight: 800; }
     .switch-status-text.open { color: var(--success); }
     .switch-status-text.closed { color: var(--danger); }
@@ -143,7 +115,6 @@
     .btn-toggle-switch.is-open { background: #fee2e2; color: #b91c1c; }
     .btn-toggle-switch.is-closed { background: #dcfce7; color: #166534; }
 
-    /* Image Preview Modal */
     .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 9999; align-items: center; justify-content: center; padding: 20px; }
     .modal-backdrop.open { display: flex; }
     .modal-box { background: #fff; border-radius: 12px; max-width: 480px; width: 100%; padding: 16px; position: relative; }
@@ -165,7 +136,6 @@
 
   <div class="overlay" id="overlay"></div>
 
-  <!-- Sidebar -->
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
       <span style="font-weight: 800; font-size: 16px;">ADMIN PANEL</span>
@@ -179,6 +149,7 @@
     <div class="sidebar-section-title">Money</div>
     <button class="nav-btn" data-tab="tab-deposits"><i class="fa-solid fa-wallet"></i> Deposit Requests</button>
     <button class="nav-btn" data-tab="tab-withdrawals"><i class="fa-solid fa-money-bill-transfer"></i> Withdrawal Requests</button>
+    <button class="nav-btn" data-tab="tab-admin-investments"><i class="fa-solid fa-file-invoice-dollar"></i> User Investments</button>
 
     <div class="sidebar-section-title">Configuration</div>
     <button class="nav-btn" data-tab="tab-products"><i class="fa-solid fa-box"></i> Investment Products</button>
@@ -186,7 +157,7 @@
   </aside>
 
   <main class="admin-main">
-    <!-- 1. DASHBOARD TAB -->
+    <!-- 1. DASHBOARD -->
     <section id="tab-dashboard" class="tab-content active">
       <div class="stat-card dark">
         <div class="stat-label">Total Users</div>
@@ -255,28 +226,34 @@
       </div>
     </section>
 
-    <!-- 2. USER MANAGEMENT TAB -->
+    <!-- 2. USER MANAGEMENT -->
     <section id="tab-users" class="tab-content">
       <input type="text" id="user-search-input" class="search-bar" placeholder="Search by Phone Number, UID, or Referral Code..." />
       <div id="users-container">Loading users...</div>
     </section>
 
-    <!-- 3. DEPOSIT REQUESTS TAB -->
+    <!-- 3. DEPOSIT REQUESTS -->
     <section id="tab-deposits" class="tab-content">
       <div id="deposits-list-container">Loading deposits...</div>
     </section>
 
-    <!-- 4. WITHDRAWAL REQUESTS TAB -->
+    <!-- 4. WITHDRAWAL REQUESTS -->
     <section id="tab-withdrawals" class="tab-content">
       <div id="withdrawals-list-container">Loading withdrawals...</div>
     </section>
 
-    <!-- 5. PRODUCTS TAB -->
+    <!-- 5. USER INVESTMENTS LISTING & DELETION -->
+    <section id="tab-admin-investments" class="tab-content">
+      <div class="section-title">Active Platform Investments</div>
+      <div id="admin-investments-list">Loading investments...</div>
+    </section>
+
+    <!-- 6. PRODUCTS CONFIG -->
     <section id="tab-products" class="tab-content">
       <div id="products-list-container">Loading products...</div>
     </section>
 
-    <!-- 6. SETTINGS & RATES TAB -->
+    <!-- 7. SETTINGS & RATES -->
     <section id="tab-settings" class="tab-content">
       <div class="setting-card">
         <h3>Global Withdrawal Control</h3>
@@ -412,11 +389,11 @@
       if (activeTab === 'tab-users') loadUsers();
       if (activeTab === 'tab-deposits') loadDeposits();
       if (activeTab === 'tab-withdrawals') loadWithdrawals();
+      if (activeTab === 'tab-admin-investments') loadAdminInvestments();
       if (activeTab === 'tab-products') loadProducts();
       if (activeTab === 'tab-settings') loadSettings();
     }
 
-    // 1. DASHBOARD LOADER
     async function loadDashboard() {
       try {
         const { stats } = await adminFetch('dashboard');
@@ -446,7 +423,7 @@
       alert('Gift Code Generated: ' + res.code);
     };
 
-    // 2. USER MANAGEMENT
+    // User Management
     async function loadUsers() {
       const container = document.getElementById('users-container');
       try {
@@ -458,20 +435,10 @@
       }
     }
 
-    document.getElementById('user-search-input').addEventListener('input', (e) => {
-      const term = e.target.value.toLowerCase().trim();
-      const filtered = loadedUsers.filter(u => 
-        (u.phone_number && u.phone_number.includes(term)) ||
-        (u.referral_code && u.referral_code.toLowerCase().includes(term)) ||
-        String(u.id).includes(term)
-      );
-      renderUsersList(filtered);
-    });
-
     function renderUsersList(users) {
       const container = document.getElementById('users-container');
       if (!users.length) {
-        container.innerHTML = '<p style="text-align:center;color:#64748b;padding:30px;">No users found in database.</p>';
+        container.innerHTML = '<p style="text-align:center;color:#64748b;padding:30px;">No users found.</p>';
         return;
       }
 
@@ -488,7 +455,6 @@
             Deposit: <strong>${fmt(u.deposit_balance)}</strong> &bull; 
             Withdrawal: <strong>${fmt(u.withdrawable_balance)}</strong>
           </div>
-
           <div id="user-details-target-${u.id}">
             <button class="pill-btn pill-gray" onclick="toggleUserDetails(${u.id})">
               <i class="fa-solid fa-chevron-down"></i> View Full Details & Controls
@@ -496,6 +462,19 @@
           </div>
         </div>
       `).join('');
+    }
+
+    const searchInput = document.getElementById('user-search-input');
+    if (searchInput) {
+      searchInput.oninput = () => {
+        const term = searchInput.value.toLowerCase().trim();
+        const filtered = loadedUsers.filter(u => 
+          (u.phone_number && u.phone_number.toLowerCase().includes(term)) ||
+          (u.referral_code && u.referral_code.toLowerCase().includes(term)) ||
+          String(u.id).includes(term)
+        );
+        renderUsersList(filtered);
+      };
     }
 
     async function toggleUserDetails(userId) {
@@ -507,36 +486,15 @@
       }
 
       target.innerHTML = '<p style="font-size:12px;color:#64748b;padding:10px 0;">Loading profile...</p>';
-
       try {
-        const { user, deposits, withdrawals, purchases, logs } = await adminFetch(`user-detail&user_id=${userId}`);
+        const { user } = await adminFetch(`user-detail&user_id=${userId}`);
         expandedUserId = userId;
 
         target.innerHTML = `
           <div class="action-button-grid" style="margin-top:10px;">
-            <button class="pill-btn pill-blue" onclick="impersonateUser(${user.id})">
-              <i class="fa-solid fa-arrow-right-to-bracket"></i> Login as User
-            </button>
-            <button class="pill-btn ${user.is_promoter ? 'pill-blue' : 'pill-gray'}" onclick="togglePromoter(${user.id})">
-              <i class="fa-solid fa-star"></i> ${user.is_promoter ? 'Promoter: Active' : 'Mark Promoter'}
-            </button>
-            <button class="pill-btn pill-gray" onclick="switchUserTab(${user.id}, 'logs')">
-              <i class="fa-solid fa-file-lines"></i> View Logs
-            </button>
-            <button class="pill-btn pill-dark" onclick="resetPassword(${user.id})">
-              <i class="fa-solid fa-key"></i> PWD RESET
-            </button>
-            <button class="pill-btn pill-red" onclick="deleteUser(${user.id})">
-              <i class="fa-solid fa-trash"></i> Delete User
-            </button>
-          </div>
-
-          <div class="toggle-package-box">
-            <div>
-              <span>Withdraw without package</span>
-              <small class="${user.withdraw_without_package ? 'text-active' : 'text-inactive'}">${user.withdraw_without_package ? 'ENABLED' : 'DISABLED'}</small>
-            </div>
-            <button class="pill-btn pill-gray" onclick="togglePackageRule(${user.id})">Toggle</button>
+            <button class="pill-btn pill-blue" onclick="impersonateUser(${user.id})">Login as User</button>
+            <button class="pill-btn pill-dark" onclick="resetPassword(${user.id})">PWD RESET (1234)</button>
+            <button class="pill-btn pill-red" onclick="deleteUser(${user.id})">Delete User</button>
           </div>
 
           <div class="balance-adjust-panel">
@@ -555,122 +513,24 @@
 
           <div class="user-balance-summary">
             <div class="bal-grid">
-              <div class="bal-item">
-                <div class="lbl">Withdrawal balance</div>
-                <div class="val">${fmt(user.withdrawable_balance)}</div>
-              </div>
-              <div class="bal-item">
-                <div class="lbl">Deposit balance</div>
-                <div class="val">${fmt(user.deposit_balance)}</div>
-              </div>
+              <div class="bal-item"><div class="lbl">Withdrawal balance</div><div class="val">${fmt(user.withdrawable_balance)}</div></div>
+              <div class="bal-item"><div class="lbl">Deposit balance</div><div class="val">${fmt(user.deposit_balance)}</div></div>
             </div>
             <div class="bal-grid">
-              <div class="bal-item">
-                <div class="lbl">Total deposited</div>
-                <div class="val">${fmt(user.total_deposited)}</div>
-              </div>
-              <div class="bal-item">
-                <div class="lbl">Total withdrawn</div>
-                <div class="val">${fmt(user.total_withdrawn)}</div>
-              </div>
-            </div>
-            <div class="bal-divider"></div>
-            <div style="font-size:12px;color:#64748b;line-height:1.6;">
-              <div><strong>UID:</strong> ${user.id} &bull; <strong>Invited by:</strong> ${user.referred_by || 'N/A'}</div>
-              <div><strong>Joined:</strong> ${new Date(user.created_at).toLocaleString()}</div>
-              <div><strong>Bank:</strong> ${user.bank_name ? `${user.bank_name} &bull; ${user.account_number} &bull; ${user.account_name}` : 'No bank card saved'}</div>
+              <div class="bal-item"><div class="lbl">Total deposited</div><div class="val">${fmt(user.total_deposited)}</div></div>
+              <div class="bal-item"><div class="lbl">Total withdrawn</div><div class="val">${fmt(user.total_withdrawn)}</div></div>
             </div>
           </div>
-
-          <div class="user-subtabs">
-            <button class="subtab-btn active" id="btn-tab-dep-${user.id}" onclick="renderSubList(${user.id}, 'deposits')">Deposits (${deposits.length})</button>
-            <button class="subtab-btn" id="btn-tab-with-${user.id}" onclick="renderSubList(${user.id}, 'withdrawals')">Withdrawals (${withdrawals.length})</button>
-            <button class="subtab-btn" id="btn-tab-inv-${user.id}" onclick="renderSubList(${user.id}, 'investments')">Investments (${purchases.length})</button>
-            <button class="subtab-btn" id="btn-tab-logs-${user.id}" onclick="renderSubList(${user.id}, 'logs')">Audit Logs (${logs.length})</button>
-          </div>
-          <div id="subtab-content-${user.id}"></div>
         `;
-
-        window[`userData_${user.id}`] = { deposits, withdrawals, purchases, logs };
-        renderSubList(user.id, 'deposits');
-
       } catch (err) {
-        target.innerHTML = `<p style="color:red;font-size:12px;">Failed to load profile: ${err.message}</p>`;
+        target.innerHTML = `<p style="color:red;font-size:12px;">${err.message}</p>`;
       }
-    }
-
-    function renderSubList(userId, tab) {
-      const data = window[`userData_${userId}`];
-      if (!data) return;
-
-      document.querySelectorAll(`#user-card-${userId} .subtab-btn`).forEach(b => b.classList.remove('active'));
-      const activeBtn = document.getElementById(`btn-tab-${tab.substring(0,3)}-${userId}`);
-      if (activeBtn) activeBtn.classList.add('active');
-
-      const container = document.getElementById(`subtab-content-${userId}`);
-      const list = data[tab] || [];
-
-      if (!list.length) {
-        container.innerHTML = `<div style="text-align:center;padding:14px;color:#94a3b8;font-size:12px;">No ${tab} recorded yet.</div>`;
-        return;
-      }
-
-      if (tab === 'deposits') {
-        container.innerHTML = list.map(d => `
-          <div class="sub-item">
-            <div>
-              <strong>+${fmt(d.amount)}</strong> &bull; ${d.reference || 'REF'}
-              <div style="color:#64748b;font-size:11px;">${new Date(d.created_at).toLocaleString()}</div>
-            </div>
-            <span class="sub-badge" style="background:#e0f2fe;color:#0369a1;">${d.status}</span>
-          </div>
-        `).join('');
-      } else if (tab === 'withdrawals') {
-        container.innerHTML = list.map(w => `
-          <div class="sub-item">
-            <div>
-              <strong>-${fmt(w.amount)}</strong> &bull; ${w.bank_name || 'Bank'}
-              <div style="color:#64748b;font-size:11px;">${new Date(w.created_at).toLocaleString()}</div>
-            </div>
-            <span class="sub-badge" style="background:#fee2e2;color:#b91c1c;">${w.status}</span>
-          </div>
-        `).join('');
-      } else if (tab === 'investments') {
-        container.innerHTML = list.map(p => `
-          <div class="sub-item">
-            <div>
-              <strong>${p.product_name}</strong> &bull; ${fmt(p.price)}
-              <div style="color:#64748b;font-size:11px;">Cycle: ${p.period_days} Days &bull; Daily: ${fmt(p.daily_income)}</div>
-            </div>
-            <span class="sub-badge" style="background:#dcfce7;color:#166534;">${p.status}</span>
-          </div>
-        `).join('');
-      } else if (tab === 'logs') {
-        container.innerHTML = list.map(l => `
-          <div class="sub-item">
-            <div>
-              <strong>${l.action_type}</strong>: ${l.details}
-              <div style="color:#64748b;font-size:11px;">${new Date(l.created_at).toLocaleString()}</div>
-            </div>
-          </div>
-        `).join('');
-      }
-    }
-
-    function switchUserTab(userId, tab) {
-      renderSubList(userId, tab);
     }
 
     async function handleAdjust(userId, direction) {
       const amount = document.getElementById(`adj-amount-${userId}`).value;
       const wallet_type = document.getElementById(`adj-wallet-${userId}`).value;
-
-      if (!amount || parseFloat(amount) <= 0) {
-        return alert('Please enter a valid adjustment amount.');
-      }
-
-      const confirmed = confirm(`Are you sure you want to ${direction.toUpperCase()} ${fmt(amount)} to this user's ${wallet_type} wallet?`);
-      if (!confirmed) return;
+      if (!amount || parseFloat(amount) <= 0) return alert('Enter a valid amount.');
 
       try {
         const res = await adminFetch('adjust-balance', {
@@ -684,88 +544,78 @@
       }
     }
 
-    async function deleteUser(userId) {
-      const confirmed = confirm('WARNING: Are you sure you want to completely DELETE this user? All balances and records will be removed.');
-      if (!confirmed) return;
-
-      try {
-        const res = await adminFetch('delete-user', {
-          method: 'POST',
-          body: { user_id: userId }
-        });
-        alert(res.message);
-        loadUsers();
-      } catch (err) {
-        alert(err.message);
-      }
-    }
-
     async function resetPassword(userId) {
-      const confirmed = confirm('Reset this user\'s password to 1234?');
-      if (!confirmed) return;
-
-      try {
-        const res = await adminFetch('reset-password', {
-          method: 'POST',
-          body: { user_id: userId }
-        });
-        alert(res.message);
-      } catch (err) {
-        alert(err.message);
-      }
+      if (!confirm('Reset password to 1234?')) return;
+      const res = await adminFetch('reset-password', { method: 'POST', body: { user_id: userId } });
+      alert(res.message);
     }
 
     async function toggleBan(userId) {
-      try {
-        const res = await adminFetch('toggle-ban', {
-          method: 'POST',
-          body: { user_id: userId }
-        });
-        alert(res.message);
-        loadUsers();
-      } catch (err) {
-        alert(err.message);
-      }
+      await adminFetch('toggle-ban', { method: 'POST', body: { user_id: userId } });
+      loadUsers();
     }
 
-    // Explicitly set the impersonation mode flag
+    async function deleteUser(userId) {
+      if (!confirm('Delete user completely? All records will be removed.')) return;
+      await adminFetch('delete-user', { method: 'POST', body: { user_id: userId } });
+      loadUsers();
+    }
+
     async function impersonateUser(userId) {
-      const confirmed = confirm('Log into this user\'s account as administrator?');
-      if (!confirmed) return;
+      const res = await adminFetch('impersonate', { method: 'POST', body: { user_id: userId } });
+      if (res.token) localStorage.setItem('nv_token', res.token);
+      localStorage.setItem('nv_impersonating', 'true');
+      window.location.href = '/index.html';
+    }
 
+    // 5. USER INVESTMENTS LISTING & DELETION
+    async function loadAdminInvestments() {
+      const container = document.getElementById('admin-investments-list');
       try {
-        const res = await adminFetch('impersonate', {
-          method: 'POST',
-          body: { user_id: userId }
-        });
-        if (res.token) {
-          localStorage.setItem('nv_token', res.token);
-        }
-        localStorage.setItem('nv_impersonating', 'true');
-        alert(res.message + ' Redirecting to user app...');
-        window.location.href = '/index.html';
+        const { investments } = await adminFetch('investments');
+        if (!investments.length) return container.innerHTML = '<p style="text-align:center;color:#64748b;padding:30px;">No investments found.</p>';
+
+        container.innerHTML = investments.map(inv => `
+          <div class="req-card">
+            <div class="req-header">
+              <span class="badge-ref">INV #${inv.id}</span>
+              <span class="badge-status badge-${inv.status === 'Active' ? 'approved' : 'declined'}">${inv.status}</span>
+            </div>
+            <div class="req-title">${inv.product_name}</div>
+            <div class="req-amount in">+${fmt(inv.price)}</div>
+            <div class="req-meta">
+              User: <strong>${inv.phone_number}</strong> &bull; Paid: <strong>${fmt(inv.amount_paid)}</strong> / ${fmt(inv.total_revenue)}<br/>
+              Next Payout: ${new Date(inv.next_drop_time).toLocaleString()}<br/>
+              Purchased: ${new Date(inv.created_at).toLocaleString()}
+            </div>
+            <div class="btn-row">
+              <button class="btn-action btn-decline" onclick="deleteInvestment(${inv.id})">Delete Investment</button>
+            </div>
+          </div>
+        `).join('');
+      } catch (err) {
+        container.innerHTML = `<p style="color:red;text-align:center;">${err.message}</p>`;
+      }
+    }
+
+    async function deleteInvestment(investmentId) {
+      if (!confirm('Are you sure you want to permanently delete this user investment record?')) return;
+      try {
+        const res = await adminFetch('delete-investment', { method: 'POST', body: { investment_id: investmentId } });
+        alert(res.message);
+        loadAdminInvestments();
       } catch (err) {
         alert(err.message);
       }
     }
 
-    async function togglePackageRule(userId) {
-      await adminFetch('toggle-package-rule', { method: 'POST', body: { user_id: userId } });
-      toggleUserDetails(userId);
-    }
-
-    async function togglePromoter(userId) {
-      await adminFetch('toggle-promoter', { method: 'POST', body: { user_id: userId } });
-      toggleUserDetails(userId);
-    }
-
-    // 3. DEPOSITS REVIEW
+    // Deposits Review
     async function loadDeposits() {
       const container = document.getElementById('deposits-list-container');
       try {
         const { deposits } = await adminFetch('deposits');
         if (!deposits.length) return container.innerHTML = '<p style="text-align:center;color:#64748b;padding:30px;">No deposit requests.</p>';
-        
+
         container.innerHTML = deposits.map(d => `
           <div class="req-card">
             <div class="req-header">
@@ -779,11 +629,10 @@
               Date: ${new Date(d.created_at).toLocaleString()}
             </div>
             ${d.proof_url ? `
-              <button class="btn-preview-slip" onclick="previewSlip('${d.id}')">
-                <i class="fa-solid fa-image"></i> Preview Payment Slip
+              <button class="btn-action" style="background:#f1f5f9;color:#0284c7;border:1px solid #cbd5e1;margin-bottom:8px;" onclick="previewSlip('${d.id}')">
+                Preview Payment Slip
               </button>
             ` : '<div style="font-size:11px;color:#94a3b8;margin-bottom:8px;">No slip uploaded</div>'}
-            
             ${d.status === 'Pending' ? `
               <div class="btn-row">
                 <button class="btn-action btn-approve" onclick="reviewDeposit(${d.id}, 'approve')">✔ APPROVE</button>
@@ -816,12 +665,13 @@
       loadDeposits();
     }
 
-    // 4. WITHDRAWALS REVIEW
+    // Withdrawals Review
     async function loadWithdrawals() {
       const container = document.getElementById('withdrawals-list-container');
       try {
         const { withdrawals } = await adminFetch('withdrawals');
         if (!withdrawals.length) return container.innerHTML = '<p style="text-align:center;color:#64748b;padding:30px;">No withdrawal requests.</p>';
+
         container.innerHTML = withdrawals.map(w => `
           <div class="req-card">
             <div class="req-header">
@@ -850,170 +700,86 @@
       loadWithdrawals();
     }
 
-    // 5. PRODUCTS MANAGEMENT & SYNC
+    // Products Management
     async function loadProducts() {
       const container = document.getElementById('products-list-container');
       try {
         const { products } = await adminFetch('products');
-        if (!products.length) {
-          container.innerHTML = '<p style="text-align:center;color:#64748b;padding:30px;">No products found in database.</p>';
-          return;
-        }
-
         container.innerHTML = products.map(p => `
-          <div class="product-mgmt-card" id="prod-card-${p.id}">
-            <div class="prod-header">
-              <span class="prod-title">${p.name}</span>
-              <span class="sub-badge" style="background:${p.status === 'Active' ? '#dcfce7' : '#fee2e2'};color:${p.status === 'Active' ? '#166534' : '#b91c1c'};">
-                ${p.status === 'Active' ? 'ENABLED' : 'DISABLED'}
-              </span>
-            </div>
-
+          <div class="product-mgmt-card">
+            <div style="font-weight:800;margin-bottom:8px;">${p.name}</div>
             <div class="prod-grid-fields">
-              <div class="form-group">
-                <label>Purchase Price (₦)</label>
-                <input type="number" id="prod-price-${p.id}" value="${p.price}" oninput="calcRevenue('${p.id}')" />
-              </div>
-              <div class="form-group">
-                <label>Daily Income (₦)</label>
-                <input type="number" id="prod-daily-${p.id}" value="${p.daily_income}" oninput="calcRevenue('${p.id}')" />
-              </div>
-              <div class="form-group">
-                <label>Period (Days)</label>
-                <input type="number" id="prod-days-${p.id}" value="${p.period_days}" oninput="calcRevenue('${p.id}')" />
-              </div>
-              <div class="form-group">
-                <label>Total Revenue (₦)</label>
-                <input type="number" id="prod-rev-${p.id}" value="${p.total_revenue || (p.daily_income * p.period_days)}" />
-              </div>
+              <div class="form-group"><label>Price (₦)</label><input type="number" id="prod-price-${p.id}" value="${p.price}" /></div>
+              <div class="form-group"><label>Daily (₦)</label><input type="number" id="prod-daily-${p.id}" value="${p.daily_income}" /></div>
+              <div class="form-group"><label>Days</label><input type="number" id="prod-days-${p.id}" value="${p.period_days}" /></div>
+              <div class="form-group"><label>Total Rev (₦)</label><input type="number" id="prod-rev-${p.id}" value="${p.total_revenue || (p.daily_income * p.period_days)}" /></div>
             </div>
-
-            <div class="prod-actions-row">
-              <div class="form-group" style="margin-bottom:0;flex:1;">
-                <select id="prod-status-${p.id}">
-                  <option value="Active" ${p.status === 'Active' ? 'selected' : ''}>Active (Enabled)</option>
-                  <option value="Inactive" ${p.status === 'Inactive' ? 'selected' : ''}>Inactive (Disabled)</option>
-                </select>
-              </div>
-              <button class="btn-sync" onclick="syncProduct('${p.id}')">
-                <i class="fa-solid fa-arrows-rotate"></i> SYNC
-              </button>
-            </div>
+            <button class="btn-sync" onclick="syncProduct('${p.id}')">SYNC</button>
           </div>
         `).join('');
-      } catch (err) {
-        container.innerHTML = `<p style="color:red;text-align:center;">${err.message}</p>`;
-      }
-    }
-
-    function calcRevenue(id) {
-      const daily = parseFloat(document.getElementById(`prod-daily-${id}`).value) || 0;
-      const days = parseInt(document.getElementById(`prod-days-${id}`).value, 10) || 0;
-      document.getElementById(`prod-rev-${id}`).value = daily * days;
+      } catch {}
     }
 
     async function syncProduct(id) {
       const price = document.getElementById(`prod-price-${id}`).value;
       const daily_income = document.getElementById(`prod-daily-${id}`).value;
       const period_days = document.getElementById(`prod-days-${id}`).value;
-      const total_revenue = document.getElementById(`prod-rev-${id}`).value;
-      const status = document.getElementById(`prod-status-${id}`).value;
-
-      try {
-        const res = await adminFetch('update-product', {
-          method: 'POST',
-          body: { id, price, daily_income, period_days, total_revenue, status }
-        });
-        alert(res.message);
-        loadProducts();
-      } catch (err) {
-        alert(err.message);
-      }
+      await adminFetch('update-product', { method: 'POST', body: { id, price, daily_income, period_days } });
+      alert('Product synced!');
     }
 
-    // 6. SETTINGS & RATES
+    // Settings
     async function loadSettings() {
       try {
         const { settings } = await adminFetch('settings');
-
         globalWithdrawalsEnabled = settings.withdrawals_enabled === 'true';
-        updateGlobalWithdrawalUI(globalWithdrawalsEnabled);
-
-        if (settings.welcome_bonus) document.getElementById('set-bonus').value = settings.welcome_bonus;
-        if (settings.referral_l1_rate) document.getElementById('set-l1').value = settings.referral_l1_rate;
-        if (settings.referral_l2_rate) document.getElementById('set-l2').value = settings.referral_l2_rate;
+        document.getElementById('global-withdrawal-text').innerText = globalWithdrawalsEnabled ? 'OPEN' : 'CLOSED';
+        document.getElementById('btn-toggle-global-withdrawal').innerText = globalWithdrawalsEnabled ? 'CLOSE Withdrawals' : 'OPEN Withdrawals';
+        
         if (settings.withdrawal_fee_percent) document.getElementById('set-fee').value = settings.withdrawal_fee_percent;
         if (settings.min_withdrawal) document.getElementById('set-min').value = settings.min_withdrawal;
+        if (settings.welcome_bonus) document.getElementById('set-bonus').value = settings.welcome_bonus;
+        if (settings.level1_rate) document.getElementById('set-l1').value = settings.level1_rate;
+        if (settings.level2_rate) document.getElementById('set-l2').value = settings.level2_rate;
         if (settings.admin_bank_name) document.getElementById('set-bank-name').value = settings.admin_bank_name;
-        if (settings.admin_account_name) document.getElementById('set-bank-holder').value = settings.admin_account_name;
-        if (settings.admin_account_number) document.getElementById('set-bank-num').value = settings.admin_account_number;
+        if (settings.admin_bank_holder) document.getElementById('set-bank-holder').value = settings.admin_bank_holder;
+        if (settings.admin_bank_num) document.getElementById('set-bank-num').value = settings.admin_bank_num;
       } catch {}
-    }
-
-    function updateGlobalWithdrawalUI(isEnabled) {
-      const textEl = document.getElementById('global-withdrawal-text');
-      const btnEl = document.getElementById('btn-toggle-global-withdrawal');
-      if (isEnabled) {
-        textEl.innerText = 'OPEN';
-        textEl.className = 'switch-status-text open';
-        btnEl.innerText = 'CLOSE Withdrawals';
-        btnEl.className = 'btn-toggle-switch is-open';
-      } else {
-        textEl.innerText = 'CLOSED';
-        textEl.className = 'switch-status-text closed';
-        btnEl.innerText = 'OPEN Withdrawals';
-        btnEl.className = 'btn-toggle-switch is-closed';
-      }
     }
 
     async function toggleGlobalWithdrawal() {
       const targetState = !globalWithdrawalsEnabled;
-      const confirmMsg = targetState 
-        ? 'Are you sure you want to OPEN withdrawals platform-wide?'
-        : 'Are you sure you want to CLOSE withdrawals platform-wide? Users will not be able to withdraw.';
-      if (!confirm(confirmMsg)) return;
+      await adminFetch('settings', { method: 'POST', body: { withdrawals_enabled: targetState ? 'true' : 'false' } });
+      globalWithdrawalsEnabled = targetState;
+      loadSettings();
+      alert(`Withdrawals are now ${targetState ? 'OPEN' : 'CLOSED'}.`);
+    }
 
-      try {
-        await adminFetch('settings', {
-          method: 'POST',
-          body: { withdrawals_enabled: targetState ? 'true' : 'false' }
-        });
-        globalWithdrawalsEnabled = targetState;
-        updateGlobalWithdrawalUI(globalWithdrawalsEnabled);
-        alert(`Withdrawals are now ${targetState ? 'OPEN' : 'CLOSED'}.`);
-      } catch (err) {
-        alert(err.message);
-      }
+    async function saveWithdrawalControls() {
+      const fee = document.getElementById('set-fee').value;
+      const min = document.getElementById('set-min').value;
+      await adminFetch('settings', { method: 'POST', body: { withdrawal_fee_percent: fee, min_withdrawal: min } });
+      alert('Withdrawal settings saved!');
     }
 
     async function saveSetting(key, val) {
       await adminFetch('settings', { method: 'POST', body: { [key]: val } });
-      alert('Saved!');
+      alert('Setting updated!');
     }
 
     async function saveRates() {
-      await adminFetch('settings', { method: 'POST', body: {
-        referral_l1_rate: document.getElementById('set-l1').value,
-        referral_l2_rate: document.getElementById('set-l2').value
-      }});
-      alert('Rates updated!');
-    }
-
-    async function saveWithdrawalControls() {
-      await adminFetch('settings', { method: 'POST', body: {
-        withdrawal_fee_percent: document.getElementById('set-fee').value,
-        min_withdrawal: document.getElementById('set-min').value
-      }});
-      alert('Withdrawal controls saved!');
+      const l1 = document.getElementById('set-l1').value;
+      const l2 = document.getElementById('set-l2').value;
+      await adminFetch('settings', { method: 'POST', body: { level1_rate: l1, level2_rate: l2 } });
+      alert('Referral rates updated!');
     }
 
     async function saveAdminBank() {
-      await adminFetch('settings', { method: 'POST', body: {
-        admin_bank_name: document.getElementById('set-bank-name').value,
-        admin_account_name: document.getElementById('set-bank-holder').value,
-        admin_account_number: document.getElementById('set-bank-num').value
-      }});
-      alert('Bank details updated!');
+      const name = document.getElementById('set-bank-name').value;
+      const holder = document.getElementById('set-bank-holder').value;
+      const num = document.getElementById('set-bank-num').value;
+      await adminFetch('settings', { method: 'POST', body: { admin_bank_name: name, admin_bank_holder: holder, admin_bank_num: num } });
+      alert('Receiving bank updated!');
     }
 
     loadDashboard();
