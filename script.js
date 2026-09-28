@@ -7,15 +7,7 @@ let userTransactions = [];
 let availableChannels = [];
 let selectedChannel = null;
 let currentReceiptBase64 = null;
-
-const VIP_PRODUCTS = [
-  { id: 'vip-1', name: 'VIP 1 Equipment', price: 3000, daily_income: 450, period_days: 30 },
-  { id: 'vip-2', name: 'VIP 2 Equipment', price: 7000, daily_income: 1100, period_days: 30 },
-  { id: 'vip-3', name: 'VIP 3 Equipment', price: 15000, daily_income: 2500, period_days: 30 },
-  { id: 'vip-4', name: 'VIP 4 Equipment', price: 35000, daily_income: 6300, period_days: 30 },
-  { id: 'vip-5', name: 'VIP 5 Equipment', price: 80000, daily_income: 15200, period_days: 30 },
-  { id: 'vip-6', name: 'VIP 6 Equipment', price: 180000, daily_income: 36000, period_days: 30 }
-];
+let countdownInterval = null;
 
 function showToast(msg) {
   const toast = document.getElementById('toast');
@@ -42,7 +34,6 @@ function switchView(viewName) {
   if (targetBtn) targetBtn.classList.add('active');
 }
 
-// Back navigation buttons
 document.querySelectorAll('[data-back]').forEach(btn => {
   btn.addEventListener('click', () => {
     switchView(btn.dataset.back);
@@ -72,17 +63,29 @@ async function fetchAPI(url, options = {}) {
   return data;
 }
 
-// Render Dashboard Data
+// -------------------------------------------------------------
+// 1. CAROUSEL & DASHBOARD RENDERING
+// -------------------------------------------------------------
+function initCarousel() {
+  const slides = document.querySelectorAll('.carousel-slide');
+  if (!slides.length) return;
+  let idx = 0;
+  setInterval(() => {
+    slides[idx].classList.remove('active');
+    idx = (idx + 1) % slides.length;
+    slides[idx].classList.add('active');
+  }, 4000);
+}
+
 function renderDashboard() {
   if (!currentUser) return;
 
-  document.getElementById('home-balance').innerText = formatCurrency(currentUser.balance);
-  document.getElementById('home-withdrawable').innerText = formatCurrency(currentUser.withdrawable_balance);
-  document.getElementById('home-income').innerText = formatCurrency(currentUser.total_income);
-
+  // Profile Financial Summary
+  document.getElementById('profile-uid').innerText = currentUser.id || '---';
   document.getElementById('profile-phone').innerText = currentUser.phone_number;
-  document.getElementById('prof-income').innerText = formatCurrency(currentUser.total_income);
-  document.getElementById('prof-withdrawn').innerText = formatCurrency(currentUser.total_withdrawn);
+  document.getElementById('prof-deposit-bal').innerText = formatCurrency(currentUser.balance);
+  document.getElementById('prof-withdrawable-bal').innerText = formatCurrency(currentUser.withdrawable_balance);
+  document.getElementById('prof-total-withdrawn').innerText = formatCurrency(currentUser.total_withdrawn);
 
   document.getElementById('team-ref-code').innerText = currentUser.referral_code || '------';
 
@@ -94,29 +97,32 @@ async function renderHomeProducts() {
   const container = document.getElementById('home-product-list');
   if (!container) return;
 
-  let products = VIP_PRODUCTS;
   try {
     const data = await fetchAPI('/api/purchase?action=catalog');
-    if (data.products && data.products.length > 0) {
-      products = data.products;
+    const products = data.products || [];
+
+    if (!products.length) {
+      container.innerHTML = '<div class="empty-state">No equipment available currently.</div>';
+      return;
     }
-  } catch {}
 
-  container.innerHTML = products.map(prod => `
-    <div class="product-card">
-      <div class="product-info">
-        <h4>${prod.name}</h4>
-        <div class="product-spec">Daily Income: <strong>${formatCurrency(prod.daily_income || prod.daily)}</strong></div>
-        <div class="product-spec">Cycle: <strong>${prod.period_days || prod.days} Days</strong></div>
-        <div class="product-price">Price: ${formatCurrency(prod.price)}</div>
+    container.innerHTML = products.map(prod => `
+      <div class="product-card">
+        <div class="product-info">
+          <h4>${prod.name}</h4>
+          <div class="product-spec">Daily Income: <strong>${formatCurrency(prod.daily_income)}</strong></div>
+          <div class="product-spec">Cycle: <strong>${prod.period_days} Days</strong></div>
+          <div class="product-spec">Max Revenue: <strong>${formatCurrency(prod.total_revenue || (prod.daily_income * prod.period_days))}</strong></div>
+          <div class="product-price">Price: ${formatCurrency(prod.price)}</div>
+        </div>
+        <button class="btn btn-primary btn-sm btn-buy" data-id="${prod.id}">Buy Now</button>
       </div>
-      <button class="btn btn-primary btn-sm btn-buy" data-id="${prod.id}">Buy Now</button>
-    </div>
-  `).join('');
+    `).join('');
 
-  container.querySelectorAll('.btn-buy').forEach(btn => {
-    btn.addEventListener('click', () => buyProduct(btn.dataset.id));
-  });
+    container.querySelectorAll('.btn-buy').forEach(btn => {
+      btn.addEventListener('click', () => buyProduct(btn.dataset.id, btn));
+    });
+  } catch {}
 }
 
 function renderMyProducts() {
@@ -128,18 +134,70 @@ function renderMyProducts() {
   }
 
   container.innerHTML = userPurchases.map(p => `
-    <div class="product-card">
-      <div class="product-info">
-        <h4>${p.product_name}</h4>
+    <div class="product-card" id="inv-card-${p.id}">
+      <div class="product-info" style="width:100%;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h4>${p.product_name}</h4>
+          <span class="sub-badge" style="background:${p.status === 'Active' ? '#dcfce7' : '#fee2e2'};color:${p.status === 'Active' ? '#166534' : '#b91c1c'};font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;">
+            ${p.status}
+          </span>
+        </div>
         <div class="product-spec">Cost: <strong>${formatCurrency(p.price)}</strong></div>
-        <div class="product-spec">Daily Return: <strong>${formatCurrency(p.daily_income)}</strong></div>
-        <div class="product-spec">Status: <span class="badge-active">${p.status}</span></div>
+        <div class="product-spec">Amount Paid: <strong class="text-success">${formatCurrency(p.amount_paid || 0)}</strong> / ${formatCurrency(p.total_revenue)}</div>
+        <div class="product-spec">Purchased: ${new Date(p.created_at).toLocaleString()}</div>
+        ${p.status === 'Active' ? `
+          <div class="drop-timer-box">
+            <i class="fa-solid fa-clock"></i> Next Income: <span class="countdown-span" data-target="${p.next_drop_time}">Calculating...</span>
+          </div>
+        ` : '<div style="font-size:11px;color:#94a3b8;margin-top:4px;">Cycle completed</div>'}
       </div>
     </div>
   `).join('');
+
+  startIncomeCountdowns();
 }
 
-async function buyProduct(productId) {
+function startIncomeCountdowns() {
+  if (countdownInterval) clearInterval(countdownInterval);
+  const updateTimers = () => {
+    const timerSpans = document.querySelectorAll('.countdown-span');
+    const now = Date.now();
+    let requiresRefresh = false;
+
+    timerSpans.forEach(el => {
+      const targetTime = new Date(el.dataset.target).getTime();
+      const diff = targetTime - now;
+
+      if (diff <= 0) {
+        el.innerText = 'Drop processing...';
+        requiresRefresh = true;
+      } else {
+        const hrs = Math.floor(diff / 3600000).toString().padStart(2, '0');
+        const mins = Math.floor((diff % 3600000) / 60000).toString().padStart(2, '0');
+        const secs = Math.floor((diff % 60000) / 1000).toString().padStart(2, '0');
+        el.innerText = `${hrs}:${mins}:${secs}`;
+      }
+    });
+
+    if (requiresRefresh) {
+      clearInterval(countdownInterval);
+      setTimeout(() => loadInitialData(), 3000);
+    }
+  };
+
+  updateTimers();
+  countdownInterval = setInterval(updateTimers, 1000);
+}
+
+// -------------------------------------------------------------
+// 2. PRODUCT PURCHASE WITH DOUBLE-CLICK GUARD
+// -------------------------------------------------------------
+async function buyProduct(productId, btn) {
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = 'Processing...';
+  }
+
   try {
     const res = await fetchAPI('/api/purchase', {
       method: 'POST',
@@ -152,15 +210,19 @@ async function buyProduct(productId) {
     if (err.code === 'INSUFFICIENT_BALANCE') {
       setTimeout(() => openRechargePage(), 1000);
     }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerText = 'Buy Now';
+    }
   }
 }
 
 // -------------------------------------------------------------
-// USER-FACING DEPOSIT FLOW (TWO-STEP)
+// 3. STRICT DEPOSIT FLOW (NAME & PROOF MANDATORY)
 // -------------------------------------------------------------
 async function openRechargePage() {
   switchView('recharge');
-  
   document.getElementById('recharge-stage-select').style.display = 'block';
   document.getElementById('recharge-stage-pay').style.display = 'none';
   currentReceiptBase64 = null;
@@ -299,17 +361,25 @@ if (fileInput) {
   });
 }
 
+// Deposit submission with strict frontend validation
 const confirmRechargeBtn = document.getElementById('btn-confirm-recharge');
 if (confirmRechargeBtn) {
   confirmRechargeBtn.addEventListener('click', async () => {
     const amount = document.getElementById('recharge-amount-input').value;
     const senderName = document.getElementById('recharge-sender-name').value;
 
-    if (!selectedChannel) {
-      return showToast('Please select a payment channel.');
+    const nameEmpty = !senderName || !senderName.trim();
+    const receiptEmpty = !currentReceiptBase64;
+
+    // Both mandatory: reject client-side before sending any API request
+    if (nameEmpty && receiptEmpty) {
+      return showToast('Please enter your name and upload payment receipt.');
     }
-    if (!senderName || !senderName.trim()) {
-      return showToast('Please enter the depositor/sender name.');
+    if (nameEmpty) {
+      return showToast('Please enter your name before submitting the deposit.');
+    }
+    if (receiptEmpty) {
+      return showToast('Please upload your payment receipt before submitting the deposit.');
     }
 
     confirmRechargeBtn.disabled = true;
@@ -343,7 +413,7 @@ if (confirmRechargeBtn) {
 }
 
 // -------------------------------------------------------------
-// WITHDRAWAL FLOW
+// 4. WITHDRAWAL SUBMISSION
 // -------------------------------------------------------------
 function openWithdrawPage() {
   document.getElementById('withdraw-available-bal').innerText = formatCurrency(currentUser.withdrawable_balance);
@@ -351,7 +421,7 @@ function openWithdrawPage() {
 
   if (!currentBank) {
     bankBox.innerHTML = `
-      <p style="color: var(--danger);">No bank account linked.</p>
+      <p style="color: var(--danger);">No bank account added.</p>
       <button class="btn btn-secondary btn-sm" style="margin-top: 8px;" id="btn-goto-add-bank">Add Bank Account</button>
     `;
     const addBtn = document.getElementById('btn-goto-add-bank');
@@ -371,6 +441,13 @@ const submitWithdrawBtn = document.getElementById('btn-submit-withdraw');
 if (submitWithdrawBtn) {
   submitWithdrawBtn.addEventListener('click', async () => {
     const amount = document.getElementById('input-withdraw-amount').value;
+    if (!amount || parseFloat(amount) <= 0) {
+      return showToast('Please enter a valid withdrawal amount.');
+    }
+
+    submitWithdrawBtn.disabled = true;
+    submitWithdrawBtn.innerText = 'Processing...';
+
     try {
       const res = await fetchAPI('/api/withdraw', {
         method: 'POST',
@@ -382,11 +459,114 @@ if (submitWithdrawBtn) {
       switchView('home');
     } catch (err) {
       showToast(err.message);
+      if (err.code === 'NO_BANK_ACCOUNT') {
+        setTimeout(() => switchView('bank-card'), 1000);
+      }
+    } finally {
+      submitWithdrawBtn.disabled = false;
+      submitWithdrawBtn.innerText = 'Submit Withdrawal';
     }
   });
 }
 
-// Dedicated Bank Form
+// -------------------------------------------------------------
+// 5. GIFT CODE REDEEM PAGE
+// -------------------------------------------------------------
+async function openGiftPage() {
+  switchView('gift');
+  try {
+    const data = await fetchAPI('/api/gift-code');
+    document.getElementById('gift-total-claimed').innerText = formatCurrency(data.total_claimed || 0);
+    const list = document.getElementById('gift-claims-list');
+    if (!data.claims || !data.claims.length) {
+      list.innerHTML = '<div class="empty-state">No gift codes claimed yet.</div>';
+    } else {
+      list.innerHTML = data.claims.map(c => `
+        <div class="history-item">
+          <div>
+            <div class="item-title">${c.code}</div>
+            <div class="item-date">${new Date(c.created_at).toLocaleString()}</div>
+          </div>
+          <div class="item-amount in">+${formatCurrency(c.amount)}</div>
+        </div>
+      `).join('');
+    }
+  } catch {}
+}
+
+const formPageGift = document.getElementById('form-page-gift');
+if (formPageGift) {
+  formPageGift.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = document.getElementById('input-page-gift-code');
+    const btn = document.getElementById('btn-claim-gift');
+    const code = input.value.trim();
+
+    btn.disabled = true;
+    btn.innerText = 'Claiming...';
+
+    try {
+      const res = await fetchAPI('/api/gift-code', {
+        method: 'POST',
+        body: { code }
+      });
+      showToast(res.message);
+      input.value = '';
+      await openGiftPage();
+      loadInitialData().catch(() => {});
+    } catch (err) {
+      showToast(err.message);
+    } finally {
+      btn.disabled = false;
+      btn.innerText = 'Claim Reward';
+    }
+  });
+}
+
+// -------------------------------------------------------------
+// 6. TEAM PAGE (TEAM 1 & TEAM 2)
+// -------------------------------------------------------------
+async function loadTeam() {
+  try {
+    const data = await fetchAPI('/api/team');
+    document.getElementById('team1-count').innerText = data.team1.count;
+    document.getElementById('team1-income').innerText = formatCurrency(data.team1.total_commission);
+    document.getElementById('team2-count').innerText = data.team2.count;
+    document.getElementById('team2-income').innerText = formatCurrency(data.team2.total_commission);
+
+    const t1Container = document.getElementById('team1-list');
+    if (!data.team1.members.length) {
+      t1Container.innerHTML = '<div class="empty-state">No direct referrals yet.</div>';
+    } else {
+      t1Container.innerHTML = data.team1.members.map(m => `
+        <div class="history-item" style="padding:10px;">
+          <div>
+            <div class="item-title">${m.phone}</div>
+            <div class="item-date">Joined: ${new Date(m.date).toLocaleDateString()}</div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    const t2Container = document.getElementById('team2-list');
+    if (!data.team2.members.length) {
+      t2Container.innerHTML = '<div class="empty-state">No indirect referrals yet.</div>';
+    } else {
+      t2Container.innerHTML = data.team2.members.map(m => `
+        <div class="history-item" style="padding:10px;">
+          <div>
+            <div class="item-title">${m.phone}</div>
+            <div class="item-date">Joined: ${new Date(m.date).toLocaleDateString()}</div>
+          </div>
+        </div>
+      `).join('');
+    }
+  } catch {}
+}
+
+// -------------------------------------------------------------
+// 7. BANK DETAILS FORM
+// -------------------------------------------------------------
 const bankForm = document.getElementById('form-dedicated-bank');
 if (bankForm) {
   bankForm.addEventListener('submit', async (e) => {
@@ -409,6 +589,9 @@ if (bankForm) {
   });
 }
 
+// -------------------------------------------------------------
+// 8. TRANSACTION HISTORY RENDERER
+// -------------------------------------------------------------
 function renderDedicatedHistory(title, items, type) {
   document.getElementById('history-page-title').innerText = title;
   const container = document.getElementById('history-page-items');
@@ -450,6 +633,9 @@ function renderDedicatedHistory(title, items, type) {
   switchView('history');
 }
 
+// -------------------------------------------------------------
+// 9. APP INITIALIZATION & RECOVERY
+// -------------------------------------------------------------
 async function loadInitialData() {
   try {
     const data = await fetchAPI('/api/bootstrap');
@@ -474,14 +660,9 @@ async function loadInitialData() {
     document.getElementById('auth-container').style.display = 'none';
     document.getElementById('app-container').style.display = 'block';
 
-    // ONLY show impersonation bar if the user session was explicitly initiated via 'Login as User'
     const impersonationBar = document.getElementById('impersonation-bar');
     if (impersonationBar) {
-      if (localStorage.getItem('nv_impersonating') === 'true') {
-        impersonationBar.style.display = 'flex';
-      } else {
-        impersonationBar.style.display = 'none';
-      }
+      impersonationBar.style.display = localStorage.getItem('nv_impersonating') === 'true' ? 'flex' : 'none';
     }
 
     loadTeam();
@@ -491,47 +672,18 @@ async function loadInitialData() {
   }
 }
 
-async function loadTeam() {
-  try {
-    const data = await fetchAPI('/api/team');
-    const teamCountEl = document.getElementById('team-count');
-    if (teamCountEl) teamCountEl.innerText = data.team_count || 0;
-    
-    const list = document.getElementById('team-members-list');
-    if (!list) return;
-
-    if (!data.members || !data.members.length) {
-      list.innerHTML = '<div class="empty-state">No team members invited yet.</div>';
-      return;
-    }
-    list.innerHTML = data.members.map(m => `
-      <div class="history-item">
-        <div>
-          <div class="item-title">${m.phone_number}</div>
-          <div class="item-date">${new Date(m.created_at).toLocaleDateString()}</div>
-        </div>
-        <div class="item-amount in">+${formatCurrency(m.total_income)}</div>
-      </div>
-    `).join('');
-  } catch {}
-}
-
+// Navigation Actions
 const btnRecharge = document.getElementById('btn-nav-recharge');
 if (btnRecharge) btnRecharge.addEventListener('click', openRechargePage);
 
 const btnWithdraw = document.getElementById('btn-nav-withdraw');
 if (btnWithdraw) btnWithdraw.addEventListener('click', openWithdrawPage);
 
-const btnBank = document.getElementById('btn-nav-bank');
-if (btnBank) btnBank.addEventListener('click', () => switchView('bank-card'));
+const btnInvite = document.getElementById('btn-nav-invite');
+if (btnInvite) btnInvite.addEventListener('click', () => switchView('team'));
 
 const btnGift = document.getElementById('btn-nav-gift');
-if (btnGift) {
-  btnGift.addEventListener('click', () => {
-    const modal = document.getElementById('modal-gift');
-    if (modal) modal.classList.add('open');
-  });
-}
+if (btnGift) btnGift.addEventListener('click', openGiftPage);
 
 const menuBank = document.getElementById('menu-bank-card');
 if (menuBank) menuBank.addEventListener('click', () => switchView('bank-card'));
@@ -572,12 +724,6 @@ if (menuTx) {
   });
 }
 
-document.querySelectorAll('.modal-close').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.modal').forEach(m => m.classList.remove('open'));
-  });
-});
-
 document.querySelectorAll('.nav-item').forEach(btn => {
   btn.addEventListener('click', () => {
     switchView(btn.dataset.view);
@@ -595,13 +741,22 @@ if (copyCodeBtn) {
   });
 }
 
-// Exit impersonation session and return to admin panel
 const returnBtn = document.getElementById('btn-return-admin');
 if (returnBtn) {
   returnBtn.addEventListener('click', () => {
     localStorage.removeItem('nv_impersonating');
     window.location.href = '/admin.html';
   });
+}
+
+// -------------------------------------------------------------
+// 10. AUTH & AUTO-REFERRAL DETECTION
+// -------------------------------------------------------------
+const urlParams = new URLSearchParams(window.location.search);
+const autoRef = urlParams.get('ref');
+if (autoRef) {
+  const regRefInput = document.getElementById('reg-ref-code');
+  if (regRefInput) regRefInput.value = autoRef.trim().toUpperCase();
 }
 
 const showRegLink = document.getElementById('link-show-register');
@@ -631,7 +786,7 @@ if (regForm) {
     const phone = document.getElementById('reg-phone').value;
     const password = document.getElementById('reg-password').value;
     const confirm = document.getElementById('reg-confirm-password').value;
-    const ref = new URLSearchParams(window.location.search).get('ref') || '';
+    const ref = document.getElementById('reg-ref-code').value;
 
     try {
       const res = await fetchAPI('/api/auth?action=register', {
@@ -678,4 +833,5 @@ if (logoutBtn) {
   });
 }
 
+initCarousel();
 loadInitialData();
