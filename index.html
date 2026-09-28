@@ -20,7 +20,6 @@
         <p class="auth-sub" id="auth-subtitle">Log in to your account</p>
       </div>
 
-      <!-- Login Form -->
       <form id="login-form" class="auth-form">
         <div class="form-group">
           <label><i class="fa-solid fa-phone"></i> Phone Number</label>
@@ -36,7 +35,6 @@
         </div>
       </form>
 
-      <!-- Register Form -->
       <form id="register-form" class="auth-form" style="display: none;">
         <div class="form-group">
           <label><i class="fa-solid fa-phone"></i> Phone Number</label>
@@ -75,11 +73,11 @@
       <!-- 1. HOME VIEW -->
       <section id="view-home" class="view-section active">
         <div class="balance-card">
-          <div class="balance-label">Deposit Balance</div>
+          <div class="balance-label">Available Balance</div>
           <div class="balance-amount" id="home-balance">₦0.00</div>
           <div class="balance-meta">
             <div>
-              <span class="sub-label">Withdrawable</span>
+              <span class="sub-label">Withdrawable Balance</span>
               <span class="sub-val" id="home-withdrawable">₦0.00</span>
             </div>
             <div>
@@ -90,36 +88,32 @@
         </div>
 
         <div class="quick-actions">
-          <button class="action-btn" data-action="deposit">
+          <button class="action-btn" id="btn-nav-recharge">
             <i class="fa-solid fa-wallet"></i>
             <span>Deposit</span>
           </button>
-          <button class="action-btn" data-action="withdraw">
+          <button class="action-btn" id="btn-nav-withdraw">
             <i class="fa-solid fa-money-bill-transfer"></i>
             <span>Withdraw</span>
           </button>
-          <button class="action-btn" data-action="bank">
+          <button class="action-btn" id="btn-nav-bank">
             <i class="fa-solid fa-building-columns"></i>
             <span>Bank Card</span>
           </button>
-          <button class="action-btn" data-action="gift">
+          <button class="action-btn" id="btn-nav-gift">
             <i class="fa-solid fa-gift"></i>
             <span>Gift Code</span>
           </button>
         </div>
 
         <div class="section-title">VIP Equipment Products</div>
-        <div class="product-list" id="home-product-list">
-          <!-- Dynamically populated VIP list -->
-        </div>
+        <div class="product-list" id="home-product-list"></div>
       </section>
 
       <!-- 2. PRODUCTS VIEW -->
       <section id="view-products" class="view-section">
         <div class="section-title">My Equipment</div>
-        <div class="my-product-list" id="my-product-list">
-          <!-- Render active equipment -->
-        </div>
+        <div class="my-product-list" id="my-product-list"></div>
       </section>
 
       <!-- 3. TEAM VIEW -->
@@ -139,16 +133,14 @@
         </div>
 
         <div class="section-title">Referred Team Members</div>
-        <div class="team-list" id="team-members-list">
-          <!-- Render team members -->
-        </div>
+        <div class="team-list" id="team-members-list"></div>
       </section>
 
       <!-- 4. PROFILE VIEW -->
       <section id="view-profile" class="view-section">
         <div class="profile-header">
           <div class="profile-avatar"><i class="fa-solid fa-user-shield"></i></div>
-          <div class="profile-phone" id="profile-phone">+234 ---------</div>
+          <div class="profile-phone" id="profile-phone">---------</div>
         </div>
 
         <div class="profile-stats-grid">
@@ -157,42 +149,179 @@
             <span class="val" id="prof-income">₦0.00</span>
           </div>
           <div class="stat-box">
-            <span class="lbl">Withdrawn</span>
+            <span class="lbl">Total Withdrawn</span>
             <span class="val" id="prof-withdrawn">₦0.00</span>
           </div>
         </div>
 
         <div class="menu-list">
-          <div class="menu-item" data-action="deposit">
-            <i class="fa-solid fa-wallet"></i>
-            <span>Recharge Deposit</span>
-            <i class="fa-solid fa-chevron-right arrow"></i>
-          </div>
-          <div class="menu-item" data-action="withdraw">
-            <i class="fa-solid fa-money-bill-transfer"></i>
-            <span>Withdraw Cash</span>
-            <i class="fa-solid fa-chevron-right arrow"></i>
-          </div>
-          <div class="menu-item" data-action="bank">
+          <div class="menu-item" id="menu-bank-card">
             <i class="fa-solid fa-building-columns"></i>
             <span>Bank Card Details</span>
             <i class="fa-solid fa-chevron-right arrow"></i>
           </div>
-          <div class="menu-item" data-action="tx-history">
-            <i class="fa-solid fa-clock-rotate-left"></i>
-            <span>Transaction History</span>
-            <i class="fa-solid fa-chevron-right arrow"></i>
-          </div>
-          <div class="menu-item" data-action="dep-history">
+          <div class="menu-item" id="menu-dep-history">
             <i class="fa-solid fa-receipt"></i>
             <span>Deposit History</span>
             <i class="fa-solid fa-chevron-right arrow"></i>
           </div>
-          <div class="menu-item" data-action="with-history">
+          <div class="menu-item" id="menu-with-history">
             <i class="fa-solid fa-list-check"></i>
             <span>Withdrawal History</span>
             <i class="fa-solid fa-chevron-right arrow"></i>
           </div>
+          <div class="menu-item" id="menu-tx-history">
+            <i class="fa-solid fa-clock-rotate-left"></i>
+            <span>Transaction History</span>
+            <i class="fa-solid fa-chevron-right arrow"></i>
+          </div>
+        </div>
+      </section>
+
+      <!-- 5. DEDICATED RECHARGE / DEPOSIT PAGE -->
+      <section id="view-recharge" class="view-section">
+        <div class="subpage-header">
+          <button class="back-btn" data-back="home"><i class="fa-solid fa-chevron-left"></i></button>
+          <h2>Account Recharge</h2>
+        </div>
+
+        <div class="recharge-banner">
+          <h3>Account recharge</h3>
+          <p>Multi-channel quick recharge</p>
+        </div>
+
+        <div class="recharge-section">
+          <div class="recharge-label-row">
+            <span>Recharge amount</span>
+            <span class="currency-tag">NGN</span>
+          </div>
+
+          <div class="predefined-grid">
+            <button class="amount-btn active" data-amt="3000">3,000</button>
+            <button class="amount-btn" data-amt="5000">5,000</button>
+            <button class="amount-btn" data-amt="10000">10,000</button>
+            <button class="amount-btn" data-amt="20000">20,000</button>
+            <button class="amount-btn" data-amt="40000">40,000</button>
+            <button class="amount-btn" data-amt="50000">50,000</button>
+            <button class="amount-btn" data-amt="100000">100,000</button>
+            <button class="amount-btn" data-amt="200000">200,000</button>
+            <button class="amount-btn" data-amt="300000">300,000</button>
+            <button class="amount-btn" data-amt="500000">500,000</button>
+            <button class="amount-btn" data-amt="1000000">1,000,000</button>
+          </div>
+
+          <div class="custom-amount-box">
+            <span class="symbol">₦</span>
+            <input type="number" id="recharge-amount-input" value="3000" placeholder="Please enter the recharge amount" />
+          </div>
+
+          <div class="recharge-label-row" style="margin-top: 20px;">
+            <span>Payment channels</span>
+          </div>
+
+          <div class="channels-list" id="payment-channels-list"></div>
+
+          <!-- Selected channel details card -->
+          <div id="channel-details-box" class="channel-details-card" style="display: none;">
+            <h4>Official Receiving Account</h4>
+            <div class="detail-row">
+              <span class="detail-title">Bank Name:</span>
+              <strong id="det-bank-name">---</strong>
+            </div>
+            <div class="detail-row">
+              <span class="detail-title">Account Name:</span>
+              <strong id="det-acc-name">---</strong>
+            </div>
+            <div class="detail-row">
+              <span class="detail-title">Account Number:</span>
+              <div class="copy-field">
+                <strong id="det-acc-number">---</strong>
+                <button type="button" class="btn btn-sm btn-secondary" id="btn-copy-account">Copy</button>
+              </div>
+            </div>
+            <p class="instructions-note" id="det-instructions"></p>
+          </div>
+
+          <!-- Proof Form -->
+          <div class="proof-form-group">
+            <label>Sender Full Name / Payment Remarks</label>
+            <input type="text" id="recharge-sender-name" placeholder="Full name used to transfer" />
+          </div>
+
+          <button class="btn btn-primary btn-block confirm-btn" id="btn-confirm-recharge">Confirm & Submit</button>
+
+          <div class="recharge-instructions">
+            <h5>RECHARGE INSTRUCTIONS</h5>
+            <ol>
+              <li>Please copy the account details provided above and make a direct bank transfer.</li>
+              <li>Always verify the account name before confirming your payment in your bank app.</li>
+              <li>Recharge requests are credited upon administrator verification.</li>
+            </ol>
+          </div>
+        </div>
+      </section>
+
+      <!-- 6. DEDICATED WITHDRAWAL PAGE -->
+      <section id="view-withdrawal" class="view-section">
+        <div class="subpage-header">
+          <button class="back-btn" data-back="home"><i class="fa-solid fa-chevron-left"></i></button>
+          <h2>Withdraw Funds</h2>
+        </div>
+
+        <div class="page-content-box">
+          <div class="info-card">
+            <span class="lbl">Withdrawable Balance</span>
+            <h3 id="withdraw-available-bal">₦0.00</h3>
+          </div>
+
+          <div class="saved-bank-summary" id="withdraw-bank-summary">
+            <p>Loading bank details...</p>
+          </div>
+
+          <div class="form-group">
+            <label>Withdrawal Amount (₦)</label>
+            <input type="number" id="input-withdraw-amount" placeholder="Min. ₦1,000" min="1000" step="100" />
+            <p class="field-hint">A 10% processing fee applies to each withdrawal request.</p>
+          </div>
+
+          <button class="btn btn-primary btn-block" id="btn-submit-withdraw">Submit Withdrawal</button>
+        </div>
+      </section>
+
+      <!-- 7. DEDICATED BANK CARD PAGE -->
+      <section id="view-bank-card" class="view-section">
+        <div class="subpage-header">
+          <button class="back-btn" data-back="profile"><i class="fa-solid fa-chevron-left"></i></button>
+          <h2>Bank Account</h2>
+        </div>
+
+        <div class="page-content-box">
+          <form id="form-dedicated-bank">
+            <div class="form-group">
+              <label>Bank Name</label>
+              <input type="text" id="bank-input-name" placeholder="e.g. OPay, Access Bank, Moniepoint" required />
+            </div>
+            <div class="form-group">
+              <label>Account Number (10 digits)</label>
+              <input type="text" id="bank-input-number" placeholder="10-digit NUBAN" maxlength="10" required />
+            </div>
+            <div class="form-group">
+              <label>Account Holder Name</label>
+              <input type="text" id="bank-input-holder" placeholder="Full name on account" required />
+            </div>
+            <button type="submit" class="btn btn-primary btn-block">Save Bank Account</button>
+          </form>
+        </div>
+      </section>
+
+      <!-- 8. DEDICATED HISTORY PAGE -->
+      <section id="view-history" class="view-section">
+        <div class="subpage-header">
+          <button class="back-btn" data-back="profile"><i class="fa-solid fa-chevron-left"></i></button>
+          <h2 id="history-page-title">History</h2>
+        </div>
+        <div class="page-content-box">
+          <div class="history-list vertical-history" id="history-page-items"></div>
         </div>
       </section>
     </main>
@@ -218,64 +347,7 @@
     </nav>
   </div>
 
-  <!-- MODALS -->
-  <div id="modal-deposit" class="modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3>Deposit Funds</h3>
-        <button class="modal-close">&times;</button>
-      </div>
-      <form id="form-deposit">
-        <div class="form-group">
-          <label>Amount (₦)</label>
-          <input type="number" id="deposit-amount" placeholder="Min. ₦1,000" min="1000" step="100" required />
-        </div>
-        <button type="submit" class="btn btn-primary btn-block">Confirm Deposit</button>
-      </form>
-    </div>
-  </div>
-
-  <div id="modal-withdraw" class="modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3>Withdraw Funds</h3>
-        <button class="modal-close">&times;</button>
-      </div>
-      <form id="form-withdraw">
-        <div class="form-group">
-          <label>Amount (₦)</label>
-          <input type="number" id="withdraw-amount" placeholder="Min. ₦1,000" min="1000" step="100" required />
-          <p class="field-hint">10% processing fee applies.</p>
-        </div>
-        <button type="submit" class="btn btn-primary btn-block">Submit Withdrawal</button>
-      </form>
-    </div>
-  </div>
-
-  <div id="modal-bank" class="modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3>Bank Card Details</h3>
-        <button class="modal-close">&times;</button>
-      </div>
-      <form id="form-bank">
-        <div class="form-group">
-          <label>Bank Name</label>
-          <input type="text" id="bank-name" placeholder="e.g. OPay / Access Bank" required />
-        </div>
-        <div class="form-group">
-          <label>Account Number</label>
-          <input type="text" id="bank-acc-number" placeholder="10-digit account number" required />
-        </div>
-        <div class="form-group">
-          <label>Account Holder Name</label>
-          <input type="text" id="bank-acc-name" placeholder="Full name on account" required />
-        </div>
-        <button type="submit" class="btn btn-primary btn-block">Save Details</button>
-      </form>
-    </div>
-  </div>
-
+  <!-- Gift code modal -->
   <div id="modal-gift" class="modal">
     <div class="modal-content">
       <div class="modal-header">
@@ -289,18 +361,6 @@
         </div>
         <button type="submit" class="btn btn-primary btn-block">Redeem</button>
       </form>
-    </div>
-  </div>
-
-  <div id="modal-history" class="modal">
-    <div class="modal-content modal-history-content">
-      <div class="modal-header">
-        <h3 id="history-modal-title">History</h3>
-        <button class="modal-close">&times;</button>
-      </div>
-      <div class="history-list vertical-history" id="history-items">
-        <!-- Render history rows vertically -->
-      </div>
     </div>
   </div>
 
