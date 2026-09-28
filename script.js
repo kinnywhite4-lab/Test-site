@@ -36,6 +36,7 @@ function switchView(viewName) {
   if (targetBtn) targetBtn.classList.add('active');
 
   if (viewName === 'team') openTeamPage();
+  if (viewName === 'invite') openInvitePage();
 }
 
 document.querySelectorAll('[data-back]').forEach(btn => {
@@ -84,11 +85,20 @@ function initCarousel() {
 function renderDashboard() {
   if (!currentUser) return;
 
-  document.getElementById('profile-uid').innerText = currentUser.id || '---';
-  document.getElementById('profile-phone').innerText = currentUser.phone_number;
-  document.getElementById('prof-deposit-bal').innerText = formatCurrency(currentUser.balance);
-  document.getElementById('prof-withdrawable-bal').innerText = formatCurrency(currentUser.withdrawable_balance);
-  document.getElementById('prof-total-withdrawn').innerText = formatCurrency(currentUser.total_withdrawn);
+  const uidEl = document.getElementById('profile-uid');
+  if (uidEl) uidEl.innerText = currentUser.id || '---';
+
+  const phoneEl = document.getElementById('profile-phone');
+  if (phoneEl) phoneEl.innerText = currentUser.phone_number;
+
+  const depBalEl = document.getElementById('prof-deposit-bal');
+  if (depBalEl) depBalEl.innerText = formatCurrency(currentUser.balance);
+
+  const withBalEl = document.getElementById('prof-withdrawable-bal');
+  if (withBalEl) withBalEl.innerText = formatCurrency(currentUser.withdrawable_balance);
+
+  const totalWithEl = document.getElementById('prof-total-withdrawn');
+  if (totalWithEl) totalWithEl.innerText = formatCurrency(currentUser.total_withdrawn);
 
   renderHomeProducts();
   renderMyProducts();
@@ -220,29 +230,44 @@ async function buyProduct(productId, btn) {
 }
 
 // -------------------------------------------------------------
-// 3. SEPARATE INVITE PAGE LOGIC (calls /api/team?action=invite)
+// 3. SEPARATE INVITE PAGE LOGIC (with fallback)
 // -------------------------------------------------------------
 async function openInvitePage() {
   switchView('invite');
+
+  // Immediately populate from loaded currentUser if available
+  if (currentUser && currentUser.referral_code) {
+    const linkInput = document.getElementById('invite-link-val');
+    const codeInput = document.getElementById('invite-code-val');
+    if (linkInput) linkInput.value = `${window.location.origin}/?ref=${currentUser.referral_code}`;
+    if (codeInput) codeInput.value = currentUser.referral_code;
+  }
+
   try {
     const data = await fetchAPI('/api/team?action=invite');
-    document.getElementById('invite-link-val').value = data.referral_link;
-    document.getElementById('invite-code-val').value = data.referral_code;
-    document.getElementById('invite-rate-l1').innerText = `${data.rates.level1}%`;
-    document.getElementById('invite-rate-l2').innerText = `${data.rates.level2}%`;
-  } catch {
-    showToast('Failed to load invite information.');
+    const linkInput = document.getElementById('invite-link-val');
+    const codeInput = document.getElementById('invite-code-val');
+    const r1 = document.getElementById('invite-rate-l1');
+    const r2 = document.getElementById('invite-rate-l2');
+
+    if (linkInput && data.referral_link) linkInput.value = data.referral_link;
+    if (codeInput && data.referral_code) codeInput.value = data.referral_code;
+    if (r1 && data.rates?.level1) r1.innerText = `${data.rates.level1}%`;
+    if (r2 && data.rates?.level2) r2.innerText = `${data.rates.level2}%`;
+  } catch (err) {
+    console.error('Invite Load Error:', err);
+    showToast(err.message || 'Failed to load invite details.');
   }
 }
 
 document.getElementById('btn-copy-invite-link')?.addEventListener('click', () => {
-  const val = document.getElementById('invite-link-val').value;
+  const val = document.getElementById('invite-link-val')?.value;
   if (!val) return;
   navigator.clipboard.writeText(val).then(() => showToast('Referral link copied to clipboard!'));
 });
 
 document.getElementById('btn-copy-invite-code')?.addEventListener('click', () => {
-  const val = document.getElementById('invite-code-val').value;
+  const val = document.getElementById('invite-code-val')?.value;
   if (!val) return;
   navigator.clipboard.writeText(val).then(() => showToast('Referral code copied to clipboard!'));
 });
@@ -255,15 +280,20 @@ async function openTeamPage() {
     const data = await fetchAPI('/api/team');
     currentTeamData = data;
 
-    document.getElementById('team1-members-count').innerText = data.team1.total_members;
-    document.getElementById('team1-members-income').innerText = formatCurrency(data.team1.total_income);
+    const t1Count = document.getElementById('team1-members-count');
+    const t1Income = document.getElementById('team1-members-income');
+    const t2Count = document.getElementById('team2-members-count');
+    const t2Income = document.getElementById('team2-members-income');
 
-    document.getElementById('team2-members-count').innerText = data.team2.total_members;
-    document.getElementById('team2-members-income').innerText = formatCurrency(data.team2.total_income);
+    if (t1Count) t1Count.innerText = data.team1?.total_members || 0;
+    if (t1Income) t1Income.innerText = formatCurrency(data.team1?.total_income || 0);
+    if (t2Count) t2Count.innerText = data.team2?.total_members || 0;
+    if (t2Income) t2Income.innerText = formatCurrency(data.team2?.total_income || 0);
 
     selectTeamTier(currentSelectedTier);
-  } catch {
-    showToast('Failed to load team data.');
+  } catch (err) {
+    console.error('Team Load Error:', err);
+    showToast(err.message || 'Failed to load team data.');
   }
 }
 
@@ -284,9 +314,9 @@ function selectTeamTier(tier) {
     if (titleEl) titleEl.innerText = 'Second Referral (Team 2) Members History';
   }
 
-  if (!currentTeamData) return;
+  if (!currentTeamData || !tbody) return;
 
-  const records = tier === 1 ? currentTeamData.team1.records : currentTeamData.team2.records;
+  const records = tier === 1 ? currentTeamData.team1?.records : currentTeamData.team2?.records;
 
   if (!records || !records.length) {
     tbody.innerHTML = `<tr><td colspan="3" class="empty-state">No investments or commissions recorded for Tier ${tier} yet.</td></tr>`;
@@ -614,7 +644,7 @@ if (formPageGift) {
 }
 
 // -------------------------------------------------------------
-// 8. BANK FORM (Calls standalone /api/bank)
+// 8. BANK FORM
 // -------------------------------------------------------------
 const bankForm = document.getElementById('form-dedicated-bank');
 if (bankForm) {
