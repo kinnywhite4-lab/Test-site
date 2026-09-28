@@ -54,7 +54,7 @@
     .stat-val { font-size: 26px; font-weight: 800; margin: 6px 0; }
     .stat-meta { font-size: 12px; opacity: 0.85; }
 
-    /* User Management Styles (Preserved) */
+    /* User Management Styles */
     .search-bar { width: 100%; padding: 12px 16px; border: 1px solid var(--border); border-radius: 12px; background: #fff; margin-bottom: 16px; outline: none; font-size: 14px; }
     .user-card { background: #fff; border: 1px solid var(--border); border-radius: 16px; padding: 18px; margin-bottom: 16px; box-shadow: 0 2px 6px rgba(0,0,0,0.02); }
     .user-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
@@ -114,8 +114,9 @@
     .btn-action { flex: 1; padding: 10px; border-radius: 8px; border: none; font-weight: 700; font-size: 13px; cursor: pointer; }
     .btn-approve { background: #dcfce7; color: #166534; }
     .btn-decline { background: #fee2e2; color: #991b1b; }
+    .btn-preview-slip { display: inline-flex; align-items: center; gap: 6px; background: #f1f5f9; color: #0284c7; border: 1px solid #cbd5e1; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; margin-bottom: 8px; }
 
-    /* Settings & Configuration Cards */
+    /* Configuration Forms */
     .setting-card { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 18px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
     .setting-card h3 { font-size: 16px; margin-bottom: 4px; }
     .setting-card p { font-size: 12px; color: var(--muted); margin-bottom: 14px; }
@@ -132,7 +133,7 @@
     .prod-actions-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 10px; }
     .btn-sync { background: #0284c7; color: #fff; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
 
-    /* Switch Style for Global Withdrawal & Status */
+    /* Switch Style for Global Withdrawal */
     .switch-wrap { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; background: #f8fafc; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 14px; }
     .switch-label { font-size: 14px; font-weight: 700; }
     .switch-status-text { font-size: 12px; font-weight: 800; }
@@ -141,6 +142,12 @@
     .btn-toggle-switch { padding: 6px 14px; border-radius: 6px; border: none; font-weight: 700; font-size: 12px; cursor: pointer; }
     .btn-toggle-switch.is-open { background: #fee2e2; color: #b91c1c; }
     .btn-toggle-switch.is-closed { background: #dcfce7; color: #166534; }
+
+    /* Modal for Image Preview */
+    .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 9999; align-items: center; justify-content: center; padding: 20px; }
+    .modal-backdrop.open { display: flex; }
+    .modal-box { background: #fff; border-radius: 12px; max-width: 480px; width: 100%; padding: 16px; position: relative; }
+    .modal-box img { width: 100%; border-radius: 8px; max-height: 75vh; object-fit: contain; }
   </style>
 </head>
 <body>
@@ -179,7 +186,7 @@
   </aside>
 
   <main class="admin-main">
-    <!-- 1. DASHBOARD TAB (PRESERVED) -->
+    <!-- 1. DASHBOARD TAB -->
     <section id="tab-dashboard" class="tab-content active">
       <div class="stat-card dark">
         <div class="stat-label">Total Users</div>
@@ -248,34 +255,32 @@
       </div>
     </section>
 
-    <!-- 2. USER MANAGEMENT TAB (PRESERVED) -->
+    <!-- 2. USER MANAGEMENT TAB -->
     <section id="tab-users" class="tab-content">
       <input type="text" id="user-search-input" class="search-bar" placeholder="Search by Phone Number, UID, or Referral Code..." />
       <div id="users-container">Loading users...</div>
     </section>
 
-    <!-- 3. DEPOSIT REQUESTS TAB (PRESERVED) -->
+    <!-- 3. DEPOSIT REQUESTS TAB -->
     <section id="tab-deposits" class="tab-content">
       <div id="deposits-list-container">Loading deposits...</div>
     </section>
 
-    <!-- 4. WITHDRAWAL REQUESTS TAB (PRESERVED) -->
+    <!-- 4. WITHDRAWAL REQUESTS TAB -->
     <section id="tab-withdrawals" class="tab-content">
       <div id="withdrawals-list-container">Loading withdrawals...</div>
     </section>
 
-    <!-- 5. PRODUCTS TAB (UPDATED WITH PRICE, DAILY, DAYS, TOTAL REVENUE, STATUS & SYNC) -->
+    <!-- 5. PRODUCTS TAB -->
     <section id="tab-products" class="tab-content">
       <div id="products-list-container">Loading products...</div>
     </section>
 
-    <!-- 6. SETTINGS & RATES TAB (UPDATED WITH GLOBAL WITHDRAWAL CONTROL OPEN/CLOSE) -->
+    <!-- 6. SETTINGS & RATES TAB -->
     <section id="tab-settings" class="tab-content">
-      
-      <!-- NEW: GLOBAL WITHDRAWAL CONTROL TOGGLE -->
       <div class="setting-card">
         <h3>Global Withdrawal Control</h3>
-        <p>Turn withdrawals ON or OFF platform-wide. When closed, users cannot submit withdrawals.</p>
+        <p>Turn withdrawals ON or OFF platform-wide.</p>
         <div class="switch-wrap">
           <div>
             <div class="switch-label">Platform Withdrawal Status</div>
@@ -285,7 +290,6 @@
         </div>
       </div>
 
-      <!-- Preserved Withdrawal Charges Controls -->
       <div class="setting-card">
         <h3>Withdrawal Charges & Limits</h3>
         <div class="form-group">
@@ -299,7 +303,6 @@
         <button class="btn-save" onclick="saveWithdrawalControls()">Save Withdrawal Settings</button>
       </div>
 
-      <!-- Preserved Welcome Bonus -->
       <div class="setting-card">
         <h3>Welcome Bonus</h3>
         <div class="form-group">
@@ -309,7 +312,6 @@
         <button class="btn-save" onclick="saveSetting('welcome_bonus', document.getElementById('set-bonus').value)">Save Bonus</button>
       </div>
 
-      <!-- Preserved Referral Commission Rates -->
       <div class="setting-card">
         <h3>Referral Commission Rates</h3>
         <div class="form-group">
@@ -323,7 +325,6 @@
         <button class="btn-save" onclick="saveRates()">Update Rates</button>
       </div>
 
-      <!-- Preserved Admin Receiving Bank -->
       <div class="setting-card">
         <h3>Admin Receiving Bank</h3>
         <div class="form-group">
@@ -342,6 +343,17 @@
       </div>
     </section>
   </main>
+
+  <!-- Image Receipt Preview Modal -->
+  <div class="modal-backdrop" id="receipt-modal">
+    <div class="modal-box">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <strong style="font-size:15px;">Payment Receipt Proof</strong>
+        <button onclick="closeReceiptModal()" style="background:none; border:none; font-size:22px; cursor:pointer;">&times;</button>
+      </div>
+      <img id="modal-receipt-img" src="" alt="Payment Receipt" />
+    </div>
+  </div>
 
   <script>
     let adminKey = localStorage.getItem('nv_admin_key') || 'novavest_admin_2026';
@@ -372,7 +384,6 @@
       return data;
     }
 
-    // Sidebar navigation
     const sidebar = document.getElementById('sidebar');
     const overlay = document.getElementById('overlay');
     document.getElementById('btn-toggle-menu').onclick = () => { sidebar.classList.add('open'); overlay.classList.add('open'); };
@@ -436,7 +447,7 @@
       alert('Gift Code Generated: ' + res.code);
     };
 
-    // 2. USER MANAGEMENT (PRESERVED INTACT)
+    // 2. USER MANAGEMENT
     async function loadUsers() {
       const container = document.getElementById('users-container');
       try {
@@ -747,21 +758,31 @@
       toggleUserDetails(userId);
     }
 
-    // 3. DEPOSITS REVIEW
+    // 3. DEPOSITS REVIEW (WITH RECEIPT PREVIEW)
     async function loadDeposits() {
       const container = document.getElementById('deposits-list-container');
       try {
         const { deposits } = await adminFetch('deposits');
         if (!deposits.length) return container.innerHTML = '<p style="text-align:center;color:#64748b;padding:30px;">No deposit requests.</p>';
+        
         container.innerHTML = deposits.map(d => `
           <div class="req-card">
             <div class="req-header">
               <span class="badge-ref">${d.reference}</span>
               <span class="badge-status badge-${d.status.toLowerCase()}">${d.status}</span>
             </div>
-            <div class="req-title">Manual Bank Transfer</div>
+            <div class="req-title">${d.channel_name || 'Manual Bank Transfer'}</div>
             <div class="req-amount in">+${fmt(d.amount)}</div>
-            <div class="req-meta">Sender: <strong>${d.sender_name || 'N/A'}</strong> (${d.phone_number})</div>
+            <div class="req-meta">
+              Sender: <strong>${d.sender_name || 'N/A'}</strong> &bull; User: ${d.phone_number}<br/>
+              Date: ${new Date(d.created_at).toLocaleString()}
+            </div>
+            ${d.proof_url ? `
+              <button class="btn-preview-slip" onclick="previewSlip('${d.id}')">
+                <i class="fa-solid fa-image"></i> Preview Payment Slip
+              </button>
+            ` : '<div style="font-size:11px;color:#94a3b8;margin-bottom:8px;">No slip uploaded</div>'}
+            
             ${d.status === 'Pending' ? `
               <div class="btn-row">
                 <button class="btn-action btn-approve" onclick="reviewDeposit(${d.id}, 'approve')">✔ APPROVE</button>
@@ -770,9 +791,22 @@
             ` : ''}
           </div>
         `).join('');
+
+        window.adminDepositsCache = deposits;
       } catch (err) {
         container.innerHTML = `<p style="color:red;text-align:center;">${err.message}</p>`;
       }
+    }
+
+    function previewSlip(depositId) {
+      const dep = (window.adminDepositsCache || []).find(d => String(d.id) === String(depositId));
+      if (!dep || !dep.proof_url) return alert('No image proof available.');
+      document.getElementById('modal-receipt-img').src = dep.proof_url;
+      document.getElementById('receipt-modal').classList.add('open');
+    }
+
+    function closeReceiptModal() {
+      document.getElementById('receipt-modal').classList.remove('open');
     }
 
     async function reviewDeposit(id, decision) {
@@ -815,7 +849,7 @@
       loadWithdrawals();
     }
 
-    // 5. PRODUCTS MANAGEMENT & SYNC (UPDATED)
+    // 5. PRODUCTS MANAGEMENT & SYNC
     async function loadProducts() {
       const container = document.getElementById('products-list-container');
       try {
@@ -896,12 +930,11 @@
       }
     }
 
-    // 6. SETTINGS & RATES (UPDATED WITH GLOBAL WITHDRAWAL CONTROL)
+    // 6. SETTINGS & RATES
     async function loadSettings() {
       try {
         const { settings } = await adminFetch('settings');
 
-        // Global Withdrawal State
         globalWithdrawalsEnabled = settings.withdrawals_enabled === 'true';
         updateGlobalWithdrawalUI(globalWithdrawalsEnabled);
 
