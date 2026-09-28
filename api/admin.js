@@ -232,23 +232,34 @@ export default async function handler(req, res) {
     // -------------------------------------------------------------
     if (action === 'investments') {
       try {
-        const rawInvestments = await sql`
-          SELECT 
-            up.id,
-            p.name as product_name,
-            p.price,
-            COALESCE(u.phone_number, u.phone, 'Investor') as phone_number,
-            p.price as amount_paid,
-            (p.daily_yield * p.duration_days) as total_revenue,
-            COALESCE(up.status, 'Active') as status,
-            up.created_at,
-            (up.created_at + interval '1 day') as next_drop_time
-          FROM user_products up
-          LEFT JOIN products p ON up.product_id = p.id
-          LEFT JOIN users u ON up.user_id = u.id
-          ORDER BY up.id DESC
-        `;
-        return res.status(200).json({ success: true, investments: rawInvestments });
+        const [rawInvestments, allUsers] = await Promise.all([
+          sql`
+            SELECT 
+              up.id,
+              p.name as product_name,
+              p.price,
+              up.user_id,
+              p.price as amount_paid,
+              (p.daily_yield * p.duration_days) as total_revenue,
+              COALESCE(up.status, 'Active') as status,
+              up.created_at,
+              (up.created_at + interval '1 day') as next_drop_time
+            FROM user_products up
+            LEFT JOIN products p ON up.product_id = p.id
+            ORDER BY up.id DESC
+          `,
+          sql`SELECT * FROM users`
+        ]);
+
+        const userMap = new Map();
+        allUsers.forEach(u => userMap.set(u.id, u.phone_number || u.phone || `User #${u.id}`));
+
+        const investments = rawInvestments.map(inv => ({
+          ...inv,
+          phone_number: userMap.get(inv.user_id) || 'Investor'
+        }));
+
+        return res.status(200).json({ success: true, investments });
       } catch (e) {
         const fallback = await sql`SELECT * FROM user_investments ORDER BY id DESC`.catch(() => []);
         return res.status(200).json({ success: true, investments: fallback });
@@ -266,33 +277,26 @@ export default async function handler(req, res) {
     }
 
     // -------------------------------------------------------------
-    // 4. DEPOSITS
+    // 4. DEPOSITS (NO SCHEMA CRASHES)
     // -------------------------------------------------------------
     if (action === 'deposits') {
-      const rawDeposits = await sql`
-        SELECT 
-          d.id,
-          d.reference,
-          d.channel_name,
-          d.amount,
-          d.sender_name,
-          d.created_at,
-          d.proof_url,
-          d.status,
-          COALESCE(u.phone_number, u.phone, 'Investor') as phone_number
-        FROM deposits d
-        LEFT JOIN users u ON d.user_id = u.id
-        ORDER BY d.id DESC
-      `;
+      const [rawDeposits, allUsers] = await Promise.all([
+        sql`SELECT * FROM deposits ORDER BY id DESC`,
+        sql`SELECT * FROM users`
+      ]);
+
+      const userMap = new Map();
+      allUsers.forEach(u => userMap.set(u.id, u.phone_number || u.phone || `User #${u.id}`));
+
       const deposits = rawDeposits.map(d => ({
         id: d.id,
         reference: d.reference || `DEP-${d.id}`,
         channel_name: d.channel_name || 'Manual Bank Transfer',
         amount: d.amount,
         sender_name: d.sender_name || 'N/A',
-        phone_number: d.phone_number,
+        phone_number: userMap.get(d.user_id) || 'Investor',
         created_at: d.created_at,
-        proof_url: d.proof_url || null,
+        proof_url: d.proof_url || d.receipt_url || null,
         status: (d.status || 'Pending').charAt(0).toUpperCase() + (d.status || 'Pending').slice(1).toLowerCase()
       }));
       return res.status(200).json({ success: true, deposits });
@@ -334,23 +338,17 @@ export default async function handler(req, res) {
     }
 
     // -------------------------------------------------------------
-    // 5. WITHDRAWALS
+    // 5. WITHDRAWALS (NO SCHEMA CRASHES)
     // -------------------------------------------------------------
     if (action === 'withdrawals') {
-      const rawWithdrawals = await sql`
-        SELECT 
-          w.id,
-          w.bank_name,
-          w.amount,
-          w.net_amount,
-          w.account_name,
-          w.account_number,
-          w.status,
-          COALESCE(u.phone_number, u.phone, 'Investor') as phone_number
-        FROM withdrawals w
-        LEFT JOIN users u ON w.user_id = u.id
-        ORDER BY w.id DESC
-      `;
+      const [rawWithdrawals, allUsers] = await Promise.all([
+        sql`SELECT * FROM withdrawals ORDER BY id DESC`,
+        sql`SELECT * FROM users`
+      ]);
+
+      const userMap = new Map();
+      allUsers.forEach(u => userMap.set(u.id, u.phone_number || u.phone || `User #${u.id}`));
+
       const withdrawals = rawWithdrawals.map(w => ({
         id: w.id,
         bank_name: w.bank_name || 'Linked Bank',
@@ -358,7 +356,7 @@ export default async function handler(req, res) {
         net_amount: w.net_amount || w.amount,
         account_name: w.account_name || 'User',
         account_number: w.account_number || '---',
-        phone_number: w.phone_number,
+        phone_number: userMap.get(w.user_id) || 'Investor',
         status: (w.status || 'Pending').charAt(0).toUpperCase() + (w.status || 'Pending').slice(1).toLowerCase()
       }));
       return res.status(200).json({ success: true, withdrawals });
