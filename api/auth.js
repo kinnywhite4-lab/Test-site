@@ -1,12 +1,12 @@
-const crypto = require('crypto');
-const { pool, hashPassword, verifyPassword, createSessionToken, getAuthenticatedUser } = require('./_db');
+import crypto from 'crypto';
+import { pool, hashPassword, verifyPassword, createSessionToken, getAuthenticatedUser } from './_db.js';
 
 function cleanPhoneNumber(phone) {
   if (!phone) return '';
   return String(phone).replace(/[^\d+]/g, '').trim();
 }
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json');
   const action = req.query.action || (req.body && req.body.action);
 
@@ -107,4 +107,4 @@ module.exports = async function handler(req, res) {
   }
 
   return res.status(404).json({ error: 'Not found.' });
-};
+}
