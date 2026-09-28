@@ -14,7 +14,8 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Please log in to continue.' });
   }
 
-  const action = req.query.action;
+  const url = new URL(req.url, `https://${req.headers.host || 'localhost'}`);
+  const action = req.query?.action || url.searchParams.get('action');
 
   // -------------------------------------------------------------
   // 1. INVITE ROUTE (?action=invite)
@@ -33,9 +34,7 @@ export default async function handler(req, res) {
           if (r.id === 'referral_l1_rate') l1Rate = parseFloat(r.val) || 20;
           if (r.id === 'referral_l2_rate') l2Rate = parseFloat(r.val) || 2;
         });
-      } catch (e) {
-        // Fallback to default 20% and 2% if table query fails
-      }
+      } catch {}
 
       const host = req.headers['host'] || 'test-site-henna-rho.vercel.app';
       const proto = req.headers['x-forwarded-proto'] || 'https';
@@ -61,7 +60,6 @@ export default async function handler(req, res) {
   // 2. TEAM MEMBERS & COMMISSIONS ROUTE
   // -------------------------------------------------------------
   try {
-    // 1. Direct Referrals (Team 1)
     const team1Users = await sql`
       SELECT id, phone_number, created_at 
       FROM users 
@@ -71,7 +69,6 @@ export default async function handler(req, res) {
 
     const t1Ids = team1Users.map(u => u.id);
 
-    // 2. Secondary Referrals (Team 2)
     let team2Users = [];
     if (t1Ids.length > 0) {
       team2Users = await sql`
@@ -82,7 +79,6 @@ export default async function handler(req, res) {
       `;
     }
 
-    // 3. Query Commission Records safely
     let t1Commissions = [];
     let t2Commissions = [];
 
@@ -101,9 +97,7 @@ export default async function handler(req, res) {
         WHERE rc.referrer_id = ${user.id} AND rc.level = 1
         ORDER BY rc.created_at DESC
       `;
-    } catch (e) {
-      t1Commissions = [];
-    }
+    } catch {}
 
     try {
       t2Commissions = await sql`
@@ -120,13 +114,10 @@ export default async function handler(req, res) {
         WHERE rc.referrer_id = ${user.id} AND rc.level = 2
         ORDER BY rc.created_at DESC
       `;
-    } catch (e) {
-      t2Commissions = [];
-    }
+    } catch {}
 
     const team1TotalIncome = t1Commissions.reduce((acc, c) => acc + parseFloat(c.commission_amount || 0), 0);
     const team2TotalIncome = t2Commissions.reduce((acc, c) => acc + parseFloat(c.commission_amount || 0), 0);
-
     const mask = (p) => (p && p.length > 6 ? p.substring(0, 3) + '****' + p.substring(p.length - 2) : 'User #' + p);
 
     return res.status(200).json({
@@ -158,6 +149,6 @@ export default async function handler(req, res) {
     });
   } catch (err) {
     console.error('Team API error:', err);
-    return res.status(500).json({ error: 'Failed to load team data: ' + (err.message || 'Database error') });
+    return res.status(500).json({ error: 'Failed to load team data.' });
   }
 }
