@@ -1,38 +1,10 @@
 /* =============================================================
-   NovaVest Main Client Controller (Fixed & Unified)
+   NovaVest Main Client Controller
 ============================================================= */
 let currentUser = null;
 let currentSettings = null;
 let activeTeamTier = 1;
 let currentSelectedChannelId = null;
-
-// Default fallback equipment in case database records are empty
-const DEFAULT_PRODUCTS = [
-  {
-    id: 1,
-    name: "VIP 1 Starter Equipment",
-    price: 3000,
-    daily_yield: 300,
-    duration_days: 30,
-    image: "1790634852391.jpg"
-  },
-  {
-    id: 2,
-    name: "VIP 2 Pro Equipment",
-    price: 8000,
-    daily_yield: 880,
-    duration_days: 30,
-    image: "1790634885911.jpg"
-  },
-  {
-    id: 3,
-    name: "VIP 3 Enterprise Unit",
-    price: 20000,
-    daily_yield: 2400,
-    duration_days: 30,
-    image: "1790634908264.jpg"
-  }
-];
 
 // Helper: Show standard toast
 function showToast(message) {
@@ -104,15 +76,18 @@ function initCarousel() {
 // VIEW NAVIGATION ROUTER
 // -------------------------------------------------------------
 function switchView(viewName) {
+  // Hide all views
   const allViews = document.querySelectorAll('.view-section');
   allViews.forEach(v => v.classList.remove('active'));
 
+  // Show target view
   const target = document.getElementById('view-' + viewName);
   if (target) {
     target.classList.add('active');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
+  // Update bottom tab navigation active states
   const navItems = document.querySelectorAll('.bottom-nav .nav-item');
   navItems.forEach(n => {
     if (n.getAttribute('data-view') === viewName) {
@@ -122,6 +97,7 @@ function switchView(viewName) {
     }
   });
 
+  // Trigger view-specific fresh data loading
   if (viewName === 'home') {
     loadProducts();
     loadProfileData();
@@ -147,14 +123,17 @@ function switchView(viewName) {
 // -------------------------------------------------------------
 async function checkAuthSession() {
   try {
-    const res = await fetch('/api/auth?action=me');
+    const res = await fetch('/api/bootstrap', { credentials: 'include' });
     const data = await res.json();
+
     if (data && data.success && data.user) {
       currentUser = data.user;
-      const authCont = document.getElementById('auth-container');
-      const appCont = document.getElementById('app-container');
-      if (authCont) authCont.style.display = 'none';
-      if (appCont) appCont.style.display = 'block';
+      currentSettings = data.settings || null;
+
+      const authContainer = document.getElementById('auth-container');
+      const appContainer = document.getElementById('app-container');
+      if (authContainer) authContainer.style.display = 'none';
+      if (appContainer) appContainer.style.display = 'block';
 
       if (data.impersonating) {
         const impBar = document.getElementById('impersonation-bar');
@@ -163,6 +142,7 @@ async function checkAuthSession() {
 
       switchView('home');
     } else {
+      // User not authenticated; keep app accessible and render public home items
       showAuthScreen();
     }
   } catch (err) {
@@ -172,15 +152,21 @@ async function checkAuthSession() {
 
 function showAuthScreen() {
   currentUser = null;
-  const authCont = document.getElementById('auth-container');
-  const appCont = document.getElementById('app-container');
-  if (authCont) authCont.style.display = 'flex';
-  if (appCont) appCont.style.display = 'none';
+  const authContainer = document.getElementById('auth-container');
+  const appContainer = document.getElementById('app-container');
+  
+  if (authContainer && appContainer) {
+    authContainer.style.display = 'flex';
+    appContainer.style.display = 'none';
+  } else {
+    // If layout uses inline modals instead of full containers, default to home view
+    switchView('home');
+  }
 }
 
 async function performLogout() {
   try {
-    await fetch('/api/auth?action=logout', { method: 'POST' });
+    await fetch('/api/auth?action=logout', { method: 'POST', credentials: 'include' });
   } catch (e) {}
 
   document.cookie = "novavest_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
@@ -199,7 +185,7 @@ async function performLogout() {
 // -------------------------------------------------------------
 async function loadProfileData() {
   try {
-    const res = await fetch('/api/auth?action=me');
+    const res = await fetch('/api/bootstrap', { credentials: 'include' });
     const data = await res.json();
     if (data && data.success && data.user) {
       currentUser = data.user;
@@ -210,7 +196,7 @@ async function loadProfileData() {
       const withBalEl = document.getElementById('prof-withdrawable-bal');
       const totWithEl = document.getElementById('prof-total-withdrawn');
 
-      if (phoneEl) phoneEl.textContent = currentUser.phone || 'Investor';
+      if (phoneEl) phoneEl.textContent = currentUser.phone || currentUser.phone_number || 'Investor';
       if (uidEl) uidEl.textContent = currentUser.id || '---';
       if (depBalEl) depBalEl.textContent = formatNaira(currentUser.deposit_balance);
       if (withBalEl) withBalEl.textContent = formatNaira(currentUser.withdrawable_balance);
@@ -219,63 +205,51 @@ async function loadProfileData() {
   } catch (err) {}
 }
 
-// FIXED: Loads from /api/bootstrap or fallback defaults
+// Loads catalog from /api/bootstrap
 async function loadProducts() {
   const container = document.getElementById('home-product-list');
   if (!container) return;
 
   try {
-    let items = [];
-    const res = await fetch('/api/bootstrap');
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.products && data.products.length > 0) {
-        items = data.products;
-      }
+    const res = await fetch('/api/bootstrap', { credentials: 'include' });
+    const data = await res.json();
+    const products = data.products || (data.data && data.data.products) || [];
+
+    if (!products || products.length === 0) {
+      container.innerHTML = '<div class="empty-state">No equipment currently available.</div>';
+      return;
     }
 
-    if (items.length === 0) {
-      items = DEFAULT_PRODUCTS;
-    }
-
-    container.innerHTML = items.map(p => {
-      const daily = p.daily_income || p.daily_yield || 0;
-      const duration = p.duration_days || p.cycle_days || 30;
-      return `
-        <div class="product-card">
-          <div class="product-info">
-            <h4>${p.name}</h4>
-            <div class="product-spec">Daily Income: <strong>${formatNaira(daily)}</strong></div>
-            <div class="product-spec">Cycle Duration: <strong>${duration} Days</strong></div>
-            <div class="product-price">${formatNaira(p.price)}</div>
-          </div>
-          <button class="btn btn-primary btn-sm" onclick="buyProduct('${p.id}')">Buy Now</button>
-        </div>
-      `;
-    }).join('');
-  } catch (err) {
-    // If network fails, still render default equipment
-    container.innerHTML = DEFAULT_PRODUCTS.map(p => `
+    container.innerHTML = products.map(p => `
       <div class="product-card">
         <div class="product-info">
-          <h4>${p.name}</h4>
-          <div class="product-spec">Daily Income: <strong>${formatNaira(p.daily_yield)}</strong></div>
-          <div class="product-spec">Cycle Duration: <strong>${p.duration_days} Days</strong></div>
+          <h4>${p.name || p.title}</h4>
+          <div class="product-spec">Daily Income: <strong>${formatNaira(p.daily_yield || p.daily_income)}</strong></div>
+          <div class="product-spec">Cycle Duration: <strong>${p.duration_days || p.days} Days</strong></div>
           <div class="product-price">${formatNaira(p.price)}</div>
         </div>
         <button class="btn btn-primary btn-sm" onclick="buyProduct('${p.id}')">Buy Now</button>
       </div>
     `).join('');
+  } catch (err) {
+    container.innerHTML = '<div class="empty-state">Unable to load equipment list.</div>';
   }
 }
 
-// FIXED: Routes to /api/purchase
+// Purchase equipment
 async function buyProduct(productId) {
+  if (!currentUser) {
+    showToast('Please sign in to purchase equipment.');
+    showAuthScreen();
+    return;
+  }
+
   if (!confirm('Confirm purchasing this VIP equipment?')) return;
   try {
     const res = await fetch('/api/purchase', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ productId })
     });
     const data = await res.json();
@@ -291,33 +265,33 @@ async function buyProduct(productId) {
   }
 }
 
-// FIXED: Gracefully handles user's active products
+// Loads user purchased equipment from /api/bootstrap
 async function loadMyActiveProducts() {
   const container = document.getElementById('my-product-list');
   if (!container) return;
 
   try {
-    const res = await fetch('/api/purchase?action=my_products');
+    const res = await fetch('/api/bootstrap', { credentials: 'include' });
     const data = await res.json();
-    const activeProducts = (data && (data.userProducts || data.purchases || data.products)) || [];
-    
-    if (activeProducts.length === 0) {
+    const myProducts = data.myProducts || data.purchases || (data.data && data.data.myProducts) || [];
+
+    if (!myProducts || myProducts.length === 0) {
       container.innerHTML = '<div class="empty-state">You do not have any active equipment working.</div>';
       return;
     }
 
-    container.innerHTML = activeProducts.map(up => `
+    container.innerHTML = myProducts.map(up => `
       <div class="product-card">
         <div class="product-info">
-          <h4>${up.product_name || up.name || 'Equipment'}</h4>
-          <div class="product-spec">Daily Yield: <strong>${formatNaira(up.daily_income || up.daily_yield || 0)}</strong></div>
-          <div class="product-spec">Days Remaining: <strong>${up.days_remaining || 0} / ${up.total_days || 30}</strong></div>
-          <div class="drop-timer-box"><i class="fa-regular fa-clock"></i> Next Drop in: ${up.next_drop_countdown || 'Active'}</div>
+          <h4>${up.product_name || up.name}</h4>
+          <div class="product-spec">Daily Yield: <strong>${formatNaira(up.daily_yield || up.daily_income)}</strong></div>
+          <div class="product-spec">Cycle Duration: <strong>${up.duration_days || up.period_days} Days</strong></div>
+          <div class="drop-timer-box"><i class="fa-regular fa-clock"></i> Status: ${up.status || 'Active'}</div>
         </div>
       </div>
     `).join('');
   } catch (err) {
-    container.innerHTML = '<div class="empty-state">You do not have any active equipment working.</div>';
+    container.innerHTML = '<div class="empty-state">Unable to load your equipment.</div>';
   }
 }
 
@@ -326,12 +300,12 @@ async function loadMyActiveProducts() {
 // -------------------------------------------------------------
 async function loadInviteData() {
   try {
-    const res = await fetch('/api/team?action=invite_info');
+    const res = await fetch('/api/team?action=invite_info', { credentials: 'include' });
     const data = await res.json();
-    if (data && data.success) {
+    if (data.success) {
       const linkInput = document.getElementById('invite-link-val');
       const codeInput = document.getElementById('invite-code-val');
-      if (linkInput) linkInput.value = data.inviteLink || window.location.origin + '/?ref=' + (data.referralCode || '');
+      if (linkInput) linkInput.value = data.inviteLink || (window.location.origin + '/?ref=' + (data.referralCode || ''));
       if (codeInput) codeInput.value = data.referralCode || '------';
     }
   } catch (e) {}
@@ -339,9 +313,9 @@ async function loadInviteData() {
 
 async function loadTeamData() {
   try {
-    const res = await fetch('/api/team?action=overview');
+    const res = await fetch('/api/team?action=overview', { credentials: 'include' });
     const data = await res.json();
-    if (data && data.success) {
+    if (data.success) {
       const t1Count = document.getElementById('team1-members-count');
       const t1Income = document.getElementById('team1-members-income');
       const t2Count = document.getElementById('team2-members-count');
@@ -396,15 +370,15 @@ function renderTeamTierTable(tier, overviewData) {
 // RECHARGE LOGIC
 // -------------------------------------------------------------
 async function loadRechargeView() {
-  const stageSelect = document.getElementById('recharge-stage-select');
-  const stagePay = document.getElementById('recharge-stage-pay');
-  if (stageSelect) stageSelect.style.display = 'block';
-  if (stagePay) stagePay.style.display = 'none';
+  const sSelect = document.getElementById('recharge-stage-select');
+  const sPay = document.getElementById('recharge-stage-pay');
+  if (sSelect) sSelect.style.display = 'block';
+  if (sPay) sPay.style.display = 'none';
 
   const channelsWrap = document.getElementById('payment-channels-list');
   if (!channelsWrap) return;
   try {
-    const res = await fetch('/api/bank?action=deposit_channels');
+    const res = await fetch('/api/bank?action=deposit_channels', { credentials: 'include' });
     const data = await res.json();
     if (data.success && data.channels && data.channels.length > 0) {
       currentSelectedChannelId = data.channels[0].id;
@@ -443,7 +417,7 @@ async function loadWithdrawalView() {
   }
   if (!summaryEl) return;
   try {
-    const res = await fetch('/api/bank?action=get_user_bank');
+    const res = await fetch('/api/bank?action=get_user_bank', { credentials: 'include' });
     const data = await res.json();
     if (data.success && data.bank) {
       summaryEl.innerHTML = `
@@ -470,7 +444,7 @@ async function loadGiftClaims() {
   const totalEl = document.getElementById('gift-total-claimed');
   if (!container) return;
   try {
-    const res = await fetch('/api/gift-code?action=my_claims');
+    const res = await fetch('/api/gift-code?action=my_claims', { credentials: 'include' });
     const data = await res.json();
     if (data && data.success) {
       if (totalEl) totalEl.textContent = formatNaira(data.total_claimed || 0);
@@ -499,6 +473,9 @@ async function loadGiftClaims() {
 document.addEventListener('DOMContentLoaded', () => {
   initThemeToggle();
   initCarousel();
+  
+  // Pre-load public catalog on startup
+  loadProducts();
   checkAuthSession();
 
   // Bottom Navigation tabs
@@ -547,12 +524,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const retAdminBtn = document.getElementById('btn-return-admin');
   if (retAdminBtn) {
     retAdminBtn.addEventListener('click', async () => {
-      await fetch('/api/auth?action=stop_impersonate', { method: 'POST' });
+      await fetch('/api/auth?action=stop_impersonate', { method: 'POST', credentials: 'include' });
       window.location.href = '/admin.html';
     });
   }
 
-  // Auth switch link toggles
+  // Auth toggle links (Login <-> Register switch)
   const showRegLink = document.getElementById('link-show-register');
   const showLoginLink = document.getElementById('link-show-login');
   const loginForm = document.getElementById('login-form');
@@ -577,7 +554,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Login form handler
+  // Login submission
   if (loginForm) {
     loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -587,6 +564,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const res = await fetch('/api/auth?action=login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify({ phone, password })
         });
         const data = await res.json();
@@ -602,7 +580,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Register form handler
+  // Register submission
   if (regForm) {
     regForm.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -620,6 +598,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const res = await fetch('/api/auth?action=register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify({ phone, password, refCode })
         });
         const data = await res.json();
@@ -635,7 +614,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Predefined recharge buttons
+  // Predefined recharge amounts
   document.querySelectorAll('.amount-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.amount-btn').forEach(b => b.classList.remove('active'));
@@ -645,7 +624,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Proceed to payment
+  // Proceed to payment screen
   const proceedPayBtn = document.getElementById('btn-proceed-to-payment');
   if (proceedPayBtn) {
     proceedPayBtn.addEventListener('click', async () => {
@@ -661,7 +640,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       try {
-        const res = await fetch(`/api/bank?action=channel_detail&id=${currentSelectedChannelId}`);
+        const res = await fetch(`/api/bank?action=channel_detail&id=${currentSelectedChannelId}`, { credentials: 'include' });
         const data = await res.json();
         if (data.success && data.channel) {
           document.getElementById('det-pay-amount').textContent = formatNaira(amount);
@@ -689,7 +668,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Clipboard copy helpers
+  // Copy helpers
   const copyAccBtn = document.getElementById('btn-copy-account');
   if (copyAccBtn) {
     copyAccBtn.addEventListener('click', () => {
@@ -705,7 +684,6 @@ document.addEventListener('DOMContentLoaded', () => {
       navigator.clipboard.writeText(lk).then(() => showToast('Invite link copied!'));
     });
   }
-
   const copyCodeBtn = document.getElementById('btn-copy-invite-code');
   if (copyCodeBtn) {
     copyCodeBtn.addEventListener('click', () => {
@@ -714,7 +692,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Save bank card form
+  // Bank Account Submission
   const dedicatedBankForm = document.getElementById('form-dedicated-bank');
   if (dedicatedBankForm) {
     dedicatedBankForm.addEventListener('submit', async (e) => {
@@ -732,6 +710,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const res = await fetch('/api/bank?action=save_user_bank', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify({ bankName, accountNumber, accountHolder })
         });
         const data = await res.json();
@@ -747,7 +726,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Gift code redemption form
+  // Gift Code Claim Submission
   const giftForm = document.getElementById('form-page-gift');
   if (giftForm) {
     giftForm.addEventListener('submit', async (e) => {
@@ -757,6 +736,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const res = await fetch('/api/gift-code?action=claim', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify({ code })
         });
         const data = await res.json();
@@ -774,20 +754,20 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Withdrawal form
+  // Withdrawal Submission
   const submitWithBtn = document.getElementById('btn-submit-withdraw');
   if (submitWithBtn) {
     submitWithBtn.addEventListener('click', async () => {
-      const input = document.getElementById('input-withdraw-amount');
-      const amount = Number(input ? input.value : 0);
+      const amount = Number(document.getElementById('input-withdraw-amount').value);
       if (!amount || amount < 1000) {
         showToast('Minimum withdrawal is ₦1,000');
         return;
       }
       try {
-        const res = await fetch('/api/withdraw', {
+        const res = await fetch('/api/withdraw?action=request', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify({ amount })
         });
         const data = await res.json();
@@ -804,7 +784,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-// Transaction History loader
+// History records loader
 async function loadHistory(type) {
   const titleEl = document.getElementById('history-page-title');
   const itemsEl = document.getElementById('history-page-items');
@@ -813,7 +793,7 @@ async function loadHistory(type) {
   itemsEl.innerHTML = '<div class="empty-state">Loading history...</div>';
 
   try {
-    const res = await fetch(`/api/transactions?type=${type}`);
+    const res = await fetch(`/api/transactions?type=${type}`, { credentials: 'include' });
     const data = await res.json();
     if (!data.success || !data.records || data.records.length === 0) {
       itemsEl.innerHTML = '<div class="empty-state">No transaction records found.</div>';
