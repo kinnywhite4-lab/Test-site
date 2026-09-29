@@ -163,7 +163,6 @@ async function checkAuthSession() {
       switchView('home');
       return true;
     } else {
-      // Check local cache fallback to prevent accidental lockouts
       const cached = localStorage.getItem('novavest_user');
       if (cached) {
         try {
@@ -316,7 +315,10 @@ async function buyProduct(productId) {
 // ACTIVE PRODUCTS: COUNTDOWN, CREATED AT, & DROPPED RATIO
 // -------------------------------------------------------------
 async function loadMyActiveProducts() {
-  const container = document.getElementById('my-product-list');
+  const container = document.getElementById('my-product-list') || 
+                    document.getElementById('user-products-list') ||
+                    document.querySelector('#view-products .product-list');
+
   if (!container) return;
 
   if (timerInterval) clearInterval(timerInterval);
@@ -327,10 +329,10 @@ async function loadMyActiveProducts() {
       credentials: 'include' 
     });
     const data = await res.json();
-    const myProducts = data.myProducts || data.purchases || (data.data && data.data.myProducts) || [];
+    const myProducts = data.myProducts || data.purchases || (data.data && (data.data.myProducts || data.data.purchases)) || [];
 
     if (!myProducts || myProducts.length === 0) {
-      container.innerHTML = '<div class="empty-state">You do not have any active equipment working.</div>';
+      container.innerHTML = '<div class="empty-state" style="text-align:center; padding: 40px 20px; color:#888;">You do not have any active equipment working.</div>';
       return;
     }
 
@@ -342,58 +344,61 @@ async function loadMyActiveProducts() {
       const totalDays = Number(up.duration_days || up.period_days || 30);
       const totalRev = Number(up.total_revenue || (dailyYield * totalDays));
 
-      const createdMs = up.created_at ? new Date(up.created_at).getTime() : now;
-      const daysElapsed = Math.min(totalDays, Math.floor((now - createdMs) / (1000 * 60 * 60 * 24)));
-      const droppedIncome = Number(up.dropped_income || up.total_earned || (daysElapsed * dailyYield));
-      const remainingIncome = Math.max(0, totalRev - droppedIncome);
+      const droppedIncome = Number(up.dropped_income !== undefined ? up.dropped_income : 0);
+      const remainingIncome = Number(up.remaining_income !== undefined ? up.remaining_income : Math.max(0, totalRev - droppedIncome));
 
       let nextDropMs;
       if (up.next_drop_time) {
         nextDropMs = new Date(up.next_drop_time).getTime();
       } else {
         const interval = 24 * 60 * 60 * 1000;
+        const createdMs = up.created_at ? new Date(up.created_at).getTime() : now;
         const diff = (now - createdMs) % interval;
         nextDropMs = now + (interval - diff);
       }
 
       return `
-        <div class="product-card" style="padding: 16px; margin-bottom: 16px;">
+        <div class="product-card" style="padding: 16px; margin-bottom: 16px; border-radius: 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08);">
           <div class="product-info">
             <div style="display: flex; justify-content: space-between; align-items: baseline;">
-              <h4>${up.product_name || up.name}</h4>
-              <span class="item-badge badge-active">${up.status || 'Active'}</span>
+              <h4 style="font-size: 16px; margin: 0; color: #fff;">${up.product_name || up.name}</h4>
+              <span class="item-badge badge-active" style="background: rgba(0, 200, 83, 0.2); color: #00e676; padding: 3px 8px; border-radius: 4px; font-size: 12px;">${up.status || 'Active'}</span>
             </div>
             
-            <div class="product-spec" style="font-size: 13px; color: var(--text-muted, #888); margin-top: 4px;">
-              <i class="fa-regular fa-calendar-check"></i> Bought: <strong>${createdDate}</strong>
+            <div class="product-spec" style="font-size: 13px; color: #888; margin-top: 6px;">
+              <i class="fa-regular fa-calendar-check"></i> Bought: <strong style="color:#ddd;">${createdDate}</strong>
             </div>
 
-            <div class="product-spec" style="margin-top: 8px;">
-              Daily Income: <strong class="text-success">${formatNaira(dailyYield)}</strong>
+            <div class="product-spec" style="font-size: 14px; margin-top: 8px;">
+              Daily Income: <strong class="text-success" style="color: #00e676;">${formatNaira(dailyYield)}</strong>
             </div>
 
-            <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; margin: 10px 0;">
-              <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px;">
-                <span>Total Dropped:</span>
-                <strong class="text-success">${formatNaira(droppedIncome)}</strong>
+            <!-- Income Dropped vs Remaining Ratio Box -->
+            <div style="background: rgba(0, 0, 0, 0.25); padding: 12px; border-radius: 8px; margin: 12px 0; border: 1px solid rgba(255, 255, 255, 0.05);">
+              <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px;">
+                <span style="color: #aaa;">Money Paid Out:</span>
+                <strong style="color: #00e676;">${formatNaira(droppedIncome)}</strong>
               </div>
               <div style="display: flex; justify-content: space-between; font-size: 13px;">
-                <span>Remaining Income:</span>
-                <strong style="color: var(--warning, #e65100);">${formatNaira(remainingIncome)}</strong>
+                <span style="color: #aaa;">Remaining to Drop:</span>
+                <strong style="color: #ff9100;">${formatNaira(remainingIncome)}</strong>
               </div>
-              <div style="font-size: 11px; text-align: right; color: #888; margin-top: 4px;">
-                Expected Total: ${formatNaira(totalRev)}
+              <div style="font-size: 11px; text-align: right; color: #777; margin-top: 6px;">
+                Total Contract: ${formatNaira(totalRev)}
               </div>
             </div>
 
-            <div class="drop-timer-box" style="padding: 8px 12px; background: rgba(0, 122, 255, 0.1); border-radius: 6px; font-weight: bold; color: #007aff;">
-              <i class="fa-regular fa-clock"></i> Next Drop in: 
-              <span class="live-countdown" data-target="${nextDropMs}" id="timer-${i}">Calculating...</span>
+            <!-- Live Countdown Timer -->
+            <div class="drop-timer-box" style="padding: 10px 12px; background: rgba(0, 122, 255, 0.12); border-radius: 6px; font-weight: bold; color: #29b6f6; display: flex; align-items: center; justify-content: space-between;">
+              <span><i class="fa-regular fa-clock"></i> Next Income Drop:</span> 
+              <span class="live-countdown" data-target="${nextDropMs}" id="timer-${i}">00:00:00</span>
             </div>
           </div>
         </div>
       `;
     }).join('');
+
+    let hasTriggeredDrop = false;
 
     function updateCountdowns() {
       const timers = document.querySelectorAll('.live-countdown');
@@ -402,7 +407,15 @@ async function loadMyActiveProducts() {
         const diff = target - Date.now();
 
         if (diff <= 0) {
-          t.textContent = "Dropping now...";
+          t.textContent = "00:00:00";
+          if (!hasTriggeredDrop) {
+            hasTriggeredDrop = true;
+            clearInterval(timerInterval);
+            setTimeout(() => {
+              loadProfileData();
+              loadMyActiveProducts();
+            }, 1500);
+          }
         } else {
           const hrs = Math.floor(diff / (1000 * 60 * 60));
           const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
@@ -416,6 +429,7 @@ async function loadMyActiveProducts() {
     timerInterval = setInterval(updateCountdowns, 1000);
 
   } catch (err) {
+    console.error("Error loading active equipment:", err);
     container.innerHTML = '<div class="empty-state">Unable to load your equipment.</div>';
   }
 }
@@ -738,13 +752,11 @@ document.addEventListener('DOMContentLoaded', () => {
             localStorage.setItem('novavest_user', JSON.stringify(data.user));
           }
 
-          // Immediately unlock dashboard interface
           const authContainer = document.getElementById('auth-container');
           const appContainer = document.getElementById('app-container');
           if (authContainer) authContainer.style.display = 'none';
           if (appContainer) appContainer.style.display = 'block';
 
-          // Load data and maintain view
           await checkAuthSession();
           switchView('home');
         } else {
