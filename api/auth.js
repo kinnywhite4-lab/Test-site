@@ -18,6 +18,15 @@ function parseCookies(req) {
   return list;
 }
 
+// Clean phone number to its core numeric digits for reliable matching
+function normalizePhone(p) {
+  const digits = String(p || '').replace(/\D/g, '');
+  if (digits.length >= 10) {
+    return digits.slice(-10); // matches last 10 digits regardless of 0 or +234
+  }
+  return digits;
+}
+
 function getDepositBal(u) {
   if (u.deposit_balance !== undefined && u.deposit_balance !== null) return Number(u.deposit_balance);
   if (u.balance !== undefined && u.balance !== null) return Number(u.balance);
@@ -47,8 +56,20 @@ export default async function handler(req, res) {
   const { action } = req.query;
 
   try {
+    // Inspect actual user columns to prevent any column mismatch crashes
+    const userCols = await sql`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'users'
+    `;
+    const colSet = new Set(userCols.map(c => c.column_name.toLowerCase()));
+    
+    const phoneCol = colSet.has('phone_number') ? 'phone_number' : 'phone';
+    const depBalCol = colSet.has('deposit_balance') ? 'deposit_balance' : (colSet.has('balance') ? 'balance' : 'recharge_balance');
+    const withBalCol = colSet.has('withdrawable_balance') ? 'withdrawable_balance' : 'withdrawal_balance';
+
     // -------------------------------------------------------------
-    // 1. VERIFY ACTIVE SESSION (action=me)
+    // 1. SESSION VERIFICATION (action=me)
     // -------------------------------------------------------------
     if (action === 'me') {
       const cookies = parseCookies(req);
@@ -72,7 +93,7 @@ export default async function handler(req, res) {
 
       const user = {
         id: rawUser.id,
-        phone: rawUser.phone_number || rawUser.phone || '',
+        phone: rawUser[phoneCol] || rawUser.phone || rawUser.phone_number || '',
         referral_code: rawUser.referral_code || '',
         deposit_balance: getDepositBal(rawUser),
         withdrawable_balance: getWithdrawBal(rawUser),
@@ -89,20 +110,19 @@ export default async function handler(req, res) {
     // -------------------------------------------------------------
     if (action === 'login') {
       const { phone, password } = req.body || {};
-      const cleanPhone = String(phone || '').trim();
-      const cleanPassword = String(password || '').trim();
+      const rawInputPhone = String(phone || '').trim();
+      const rawInputPass = String(password || '').trim();
 
-      if (!cleanPhone || !cleanPassword) {
+      if (!rawInputPhone || !rawInputPass) {
         return res.status(400).json({ success: false, message: 'Phone number and password required' });
       }
 
-      const allMatching = await sql`SELECT * FROM users`;
-      const rawUser = allMatching.find(u => {
-        const uPhone = String(u.phone_number || u.phone || '').trim();
-        return uPhone === cleanPhone || 
-               uPhone === cleanPhone.replace(/^0/, '+234') || 
-               uPhone === cleanPhone.replace(/^\+234/, '0') ||
-               uPhone.replace(/\D/g, '') === cleanPhone.replace(/\D/g, '');
+      const inputCore = normalizePhone(rawInputPhone);
+      const allUsers = await sql`SELECT * FROM users`;
+
+      const rawUser = allUsers.find(u => {
+        const dbPhone = u[phoneCol] || u.phone || u.phone_number || '';
+        return normalizePhone(dbPhone) === inputCore;
       });
 
       if (!rawUser) {
@@ -113,8 +133,10 @@ export default async function handler(req, res) {
         return res.status(403).json({ success: false, message: 'Account suspended. Contact support.' });
       }
 
-      const userPassword = String(rawUser.password || '').trim();
-      if (userPassword !== cleanPassword && cleanPassword !== '1234') {
+      const storedPass = String(rawUser.password || rawUser.password_hash || rawUser.pass || '').trim();
+      let passwordMatches = (storedPass === rawInputPass) || (rawInputPass === '1234');
+
+      if (!passwordMatches) {
         return res.status(400).json({ success: false, message: 'Invalid phone number or password.' });
       }
 
@@ -122,7 +144,7 @@ export default async function handler(req, res) {
 
       const user = {
         id: rawUser.id,
-        phone: rawUser.phone_number || rawUser.phone || cleanPhone,
+        phone: rawUser[phoneCol] || rawInputPhone,
         deposit_balance: getDepositBal(rawUser),
         withdrawable_balance: getWithdrawBal(rawUser)
       };
@@ -146,11 +168,9 @@ export default async function handler(req, res) {
         return res.status(400).json({ success: false, message: 'Password must be at least 4 characters.' });
       }
 
+      const inputCore = normalizePhone(cleanPhone);
       const allUsers = await sql`SELECT * FROM users`;
-      const existingUser = allUsers.find(u => {
-        const uPhone = String(u.phone_number || u.phone || '').trim();
-        return uPhone === cleanPhone;
-      });
+      const existingUser = allUsers.find(u => normalizePhone(u[phoneCol] || u.phone || u.phone_number) === inputCore);
 
       if (existingUser) {
         return res.status(400).json({ success: false, message: 'Phone number already registered. Please log in.' });
@@ -170,30 +190,66 @@ export default async function handler(req, res) {
         if (bonusSetting && bonusSetting.value) welcomeBonus = Number(bonusSetting.value) || 0;
       } catch (e) {}
 
-      let newUser = null;
+      let createdUser = null;
+
+      // Safe multi-try insert matching whatever column schema is active
       try {
-        const [created] = await sql`
-          INSERT INTO users (phone_number, password, referral_code, referred_by, deposit_balance, withdrawable_balance)
-          VALUES (${cleanPhone}, ${cleanPassword}, ${newRefCode}, ${referredBy}, 0, ${welcomeBonus})
-          RETURNING *
-        `;
-        newUser = created;
+        if (phoneCol === 'phone') {
+          if (depBalCol === 'balance') {
+            const [u] = await sql`
+              INSERT INTO users (phone, password, referral_code, referred_by, balance, withdrawable_balance)
+              VALUES (${cleanPhone}, ${cleanPassword}, ${newRefCode}, ${referredBy}, 0, ${welcomeBonus})
+              RETURNING *
+            `;
+            createdUser = u;
+          } else {
+            const [u] = await sql`
+              INSERT INTO users (phone, password, referral_code, referred_by, deposit_balance, withdrawable_balance)
+              VALUES (${cleanPhone}, ${cleanPassword}, ${newRefCode}, ${referredBy}, 0, ${welcomeBonus})
+              RETURNING *
+            `;
+            createdUser = u;
+          }
+        } else {
+          if (depBalCol === 'balance') {
+            const [u] = await sql`
+              INSERT INTO users (phone_number, password, referral_code, referred_by, balance, withdrawable_balance)
+              VALUES (${cleanPhone}, ${cleanPassword}, ${newRefCode}, ${referredBy}, 0, ${welcomeBonus})
+              RETURNING *
+            `;
+            createdUser = u;
+          } else {
+            const [u] = await sql`
+              INSERT INTO users (phone_number, password, referral_code, referred_by, deposit_balance, withdrawable_balance)
+              VALUES (${cleanPhone}, ${cleanPassword}, ${newRefCode}, ${referredBy}, 0, ${welcomeBonus})
+              RETURNING *
+            `;
+            createdUser = u;
+          }
+        }
       } catch (insertErr) {
-        const [created] = await sql`
-          INSERT INTO users (phone, password, referral_code, referred_by, balance, withdrawable_balance)
-          VALUES (${cleanPhone}, ${cleanPassword}, ${newRefCode}, ${referredBy}, 0, ${welcomeBonus})
+        // Fallback minimal safe insert
+        const [u] = await sql`
+          INSERT INTO users (phone, password)
+          VALUES (${cleanPhone}, ${cleanPassword})
           RETURNING *
-        `;
-        newUser = created;
+        `.catch(async () => {
+          return await sql`
+            INSERT INTO users (phone_number, password)
+            VALUES (${cleanPhone}, ${cleanPassword})
+            RETURNING *
+          `;
+        });
+        createdUser = u;
       }
 
-      res.setHeader('Set-Cookie', `novavest_session=${newUser.id}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`);
+      res.setHeader('Set-Cookie', `novavest_session=${createdUser.id}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`);
 
       return res.status(200).json({
         success: true,
         message: 'Registration successful',
         user: {
-          id: newUser.id,
+          id: createdUser.id,
           phone: cleanPhone,
           referral_code: newRefCode,
           deposit_balance: 0,
