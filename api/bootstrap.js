@@ -127,9 +127,8 @@ export default async function handler(req, res) {
 
       if (rawUser) {
         let rawPurchases = [];
-        let activeTable = 'purchases';
 
-        // Multi-table query: Safely checks all possible investment tables
+        // Check purchase tables safely
         try {
           rawPurchases = await sql`SELECT * FROM purchases WHERE user_id = ${rawUser.id} ORDER BY id DESC`;
         } catch (errP1) {
@@ -143,11 +142,9 @@ export default async function handler(req, res) {
         if (!rawPurchases || rawPurchases.length === 0) {
           try {
             rawPurchases = await sql`SELECT * FROM user_products WHERE user_id = ${rawUser.id} ORDER BY id DESC`;
-            activeTable = 'user_products';
           } catch (errU1) {
             try {
               rawPurchases = await sql`SELECT * FROM user_products WHERE user_id::text = ${String(rawUser.id)} ORDER BY id DESC`;
-              activeTable = 'user_products';
             } catch (errU2) {
               rawPurchases = [];
             }
@@ -157,18 +154,30 @@ export default async function handler(req, res) {
         if (!rawPurchases || rawPurchases.length === 0) {
           try {
             rawPurchases = await sql`SELECT * FROM user_investments WHERE user_id = ${rawUser.id} ORDER BY id DESC`;
-            activeTable = 'user_investments';
           } catch (errI1) {
             try {
               rawPurchases = await sql`SELECT * FROM user_investments WHERE user_id::text = ${String(rawUser.id)} ORDER BY id DESC`;
-              activeTable = 'user_investments';
             } catch (errI2) {
               rawPurchases = [];
             }
           }
         }
 
+        // Fetch existing income drop transactions to prevent repeat additions
+        let existingDrops = [];
+        try {
+          existingDrops = await sql`
+            SELECT id, title, amount, created_at 
+            FROM transactions 
+            WHERE user_id::text = ${String(rawUser.id)} AND type = 'income'
+            ORDER BY created_at DESC
+          `;
+        } catch (eTx) {
+          existingDrops = [];
+        }
+
         const now = Date.now();
+        const intervalMs = 24 * 60 * 60 * 1000;
         const prodMap = new Map();
         products.forEach(p => prodMap.set(String(p.id), p));
 
@@ -179,52 +188,46 @@ export default async function handler(req, res) {
             const daily = Number(item.daily_yield || item.daily_income || matched.daily_income || matched.daily_yield || 0);
             const days = Number(item.duration_days || item.period_days || matched.duration_days || 30);
             const totalRev = Number(item.total_revenue || (daily * days));
-
             const createdMs = item.created_at ? new Date(item.created_at).getTime() : now;
-            
-            // Safe next_drop_time initialization
-            let nextDropMs = item.next_drop_time 
-              ? new Date(item.next_drop_time).getTime() 
-              : (createdMs + (24 * 60 * 60 * 1000));
 
-            let currentEarned = Number(item.total_earned || item.dropped_income || 0);
+            // Find drop transactions recorded specifically for this item
+            const itemDrops = existingDrops.filter(d => 
+              d.title && d.title.includes(item.name || matched.name || 'Equipment')
+            );
 
-            // ONLY credit when the countdown has reached or passed 0
+            // True money paid out is calculated strictly from completed transactions
+            let currentEarned = itemDrops.reduce((acc, d) => acc + Number(d.amount || 0), 0);
+            if (currentEarned === 0 && item.total_earned) {
+              currentEarned = Number(item.total_earned);
+            }
+
+            // Determine latest drop time
+            let latestDropMs = createdMs;
+            if (itemDrops.length > 0 && itemDrops[0].created_at) {
+              latestDropMs = new Date(itemDrops[0].created_at).getTime();
+            }
+
+            let nextDropMs = latestDropMs + intervalMs;
+
+            // ONLY CREDIT IF 24 FULL HOURS HAVE PASSED SINCE THE LAST DROP TRANSACTION
             if (now >= nextDropMs && daily > 0 && currentEarned < totalRev) {
-              const updatedEarned = currentEarned + daily;
-              const newNextDropIso = new Date(now + (24 * 60 * 60 * 1000)).toISOString();
-              const nowIso = new Date(now).toISOString();
-
-              // Update the specific table safely
+              // 1. Immediately insert a transaction record to seal the lock
               try {
-                if (activeTable === 'purchases') {
-                  await sql`
-                    UPDATE purchases 
-                    SET next_drop_time = ${newNextDropIso},
-                        last_drop_time = ${nowIso},
-                        total_earned = ${updatedEarned}
-                    WHERE id = ${item.id}
-                  `;
-                } else if (activeTable === 'user_products') {
-                  await sql`
-                    UPDATE user_products 
-                    SET next_drop_time = ${newNextDropIso},
-                        last_drop_time = ${nowIso},
-                        total_earned = ${updatedEarned}
-                    WHERE id = ${item.id}
-                  `;
-                } else {
-                  await sql`
-                    UPDATE user_investments 
-                    SET next_drop_time = ${newNextDropIso},
-                        last_drop_time = ${nowIso},
-                        total_earned = ${updatedEarned}
-                    WHERE id = ${item.id}
-                  `;
-                }
-              } catch (upErr) {}
+                await sql`
+                  INSERT INTO transactions (user_id, title, type, amount, direction, status, created_at)
+                  VALUES (
+                    ${String(rawUser.id)}, 
+                    ${(item.name || matched.name || 'Equipment') + ' Daily Yield (#' + item.id + ')'}, 
+                    'income', 
+                    ${daily}, 
+                    'in', 
+                    'completed', 
+                    NOW()
+                  )
+                `;
+              } catch (txErr) {}
 
-              // Add the daily yield to the user's withdrawable balance
+              // 2. Add strictly that single day's yield to the withdrawable balance
               try {
                 await sql`
                   UPDATE users 
@@ -241,31 +244,8 @@ export default async function handler(req, res) {
                 } catch (eU2) {}
               }
 
-              // Register on Transaction History
-              try {
-                await sql`
-                  INSERT INTO transactions (user_id, title, type, amount, direction, status, created_at)
-                  VALUES (
-                    ${String(rawUser.id)}, 
-                    ${(item.name || matched.name || 'Equipment') + ' Daily Yield'}, 
-                    'income', 
-                    ${daily}, 
-                    'in', 
-                    'completed', 
-                    NOW()
-                  )
-                `;
-              } catch (txErr) {
-                try {
-                  await sql`
-                    INSERT INTO user_transactions (user_id, type, amount, status, created_at)
-                    VALUES (${String(rawUser.id)}, 'income', ${daily}, 'completed', NOW())
-                  `;
-                } catch (txErr2) {}
-              }
-
-              currentEarned = updatedEarned;
-              nextDropMs = now + (24 * 60 * 60 * 1000);
+              currentEarned += daily;
+              nextDropMs = now + intervalMs;
               rawUser.withdrawable_balance = Number(rawUser.withdrawable_balance || 0) + daily;
             }
 
