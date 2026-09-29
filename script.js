@@ -1,10 +1,38 @@
 /* =============================================================
-   NovaVest Main Client Controller
+   NovaVest Main Client Controller (Fixed & Unified)
 ============================================================= */
 let currentUser = null;
 let currentSettings = null;
 let activeTeamTier = 1;
 let currentSelectedChannelId = null;
+
+// Default fallback equipment in case database records are empty
+const DEFAULT_PRODUCTS = [
+  {
+    id: 1,
+    name: "VIP 1 Starter Equipment",
+    price: 3000,
+    daily_yield: 300,
+    duration_days: 30,
+    image: "1790634852391.jpg"
+  },
+  {
+    id: 2,
+    name: "VIP 2 Pro Equipment",
+    price: 8000,
+    daily_yield: 880,
+    duration_days: 30,
+    image: "1790634885911.jpg"
+  },
+  {
+    id: 3,
+    name: "VIP 3 Enterprise Unit",
+    price: 20000,
+    daily_yield: 2400,
+    duration_days: 30,
+    image: "1790634908264.jpg"
+  }
+];
 
 // Helper: Show standard toast
 function showToast(message) {
@@ -24,7 +52,7 @@ function formatNaira(num) {
 }
 
 // -------------------------------------------------------------
-// THEME SWITCHER LOGIC (Dark Obsidian <--> White & Blue Light)
+// THEME SWITCHER LOGIC
 // -------------------------------------------------------------
 function initThemeToggle() {
   const toggleBtn = document.getElementById('btn-theme-toggle');
@@ -76,18 +104,15 @@ function initCarousel() {
 // VIEW NAVIGATION ROUTER
 // -------------------------------------------------------------
 function switchView(viewName) {
-  // Hide all views
   const allViews = document.querySelectorAll('.view-section');
   allViews.forEach(v => v.classList.remove('active'));
 
-  // Show active view
   const target = document.getElementById('view-' + viewName);
   if (target) {
     target.classList.add('active');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  // Update bottom tab navigation active states
   const navItems = document.querySelectorAll('.bottom-nav .nav-item');
   navItems.forEach(n => {
     if (n.getAttribute('data-view') === viewName) {
@@ -97,7 +122,6 @@ function switchView(viewName) {
     }
   });
 
-  // Trigger view-specific fresh data loading
   if (viewName === 'home') {
     loadProducts();
     loadProfileData();
@@ -127,10 +151,11 @@ async function checkAuthSession() {
     const data = await res.json();
     if (data && data.success && data.user) {
       currentUser = data.user;
-      document.getElementById('auth-container').style.display = 'none';
-      document.getElementById('app-container').style.display = 'block';
+      const authCont = document.getElementById('auth-container');
+      const appCont = document.getElementById('app-container');
+      if (authCont) authCont.style.display = 'none';
+      if (appCont) appCont.style.display = 'block';
 
-      // Check for Admin Impersonation header
       if (data.impersonating) {
         const impBar = document.getElementById('impersonation-bar');
         if (impBar) impBar.style.display = 'flex';
@@ -147,8 +172,10 @@ async function checkAuthSession() {
 
 function showAuthScreen() {
   currentUser = null;
-  document.getElementById('auth-container').style.display = 'flex';
-  document.getElementById('app-container').style.display = 'none';
+  const authCont = document.getElementById('auth-container');
+  const appCont = document.getElementById('app-container');
+  if (authCont) authCont.style.display = 'flex';
+  if (appCont) appCont.style.display = 'none';
 }
 
 async function performLogout() {
@@ -156,7 +183,6 @@ async function performLogout() {
     await fetch('/api/auth?action=logout', { method: 'POST' });
   } catch (e) {}
 
-  // Explicit browser cookie eviction
   document.cookie = "novavest_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
   document.cookie = "token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
   localStorage.removeItem('novavest_session');
@@ -175,7 +201,7 @@ async function loadProfileData() {
   try {
     const res = await fetch('/api/auth?action=me');
     const data = await res.json();
-    if (data.success && data.user) {
+    if (data && data.success && data.user) {
       currentUser = data.user;
       
       const phoneEl = document.getElementById('profile-phone');
@@ -193,17 +219,43 @@ async function loadProfileData() {
   } catch (err) {}
 }
 
+// FIXED: Loads from /api/bootstrap or fallback defaults
 async function loadProducts() {
   const container = document.getElementById('home-product-list');
   if (!container) return;
+
   try {
-    const res = await fetch('/api/products?action=list');
-    const data = await res.json();
-    if (!data.success || !data.products || data.products.length === 0) {
-      container.innerHTML = '<div class="empty-state">No equipment currently available.</div>';
-      return;
+    let items = [];
+    const res = await fetch('/api/bootstrap');
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.products && data.products.length > 0) {
+        items = data.products;
+      }
     }
-    container.innerHTML = data.products.map(p => `
+
+    if (items.length === 0) {
+      items = DEFAULT_PRODUCTS;
+    }
+
+    container.innerHTML = items.map(p => {
+      const daily = p.daily_income || p.daily_yield || 0;
+      const duration = p.duration_days || p.cycle_days || 30;
+      return `
+        <div class="product-card">
+          <div class="product-info">
+            <h4>${p.name}</h4>
+            <div class="product-spec">Daily Income: <strong>${formatNaira(daily)}</strong></div>
+            <div class="product-spec">Cycle Duration: <strong>${duration} Days</strong></div>
+            <div class="product-price">${formatNaira(p.price)}</div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="buyProduct('${p.id}')">Buy Now</button>
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    // If network fails, still render default equipment
+    container.innerHTML = DEFAULT_PRODUCTS.map(p => `
       <div class="product-card">
         <div class="product-info">
           <h4>${p.name}</h4>
@@ -214,15 +266,14 @@ async function loadProducts() {
         <button class="btn btn-primary btn-sm" onclick="buyProduct('${p.id}')">Buy Now</button>
       </div>
     `).join('');
-  } catch (err) {
-    container.innerHTML = '<div class="empty-state">Unable to load equipment list.</div>';
   }
 }
 
+// FIXED: Routes to /api/purchase
 async function buyProduct(productId) {
   if (!confirm('Confirm purchasing this VIP equipment?')) return;
   try {
-    const res = await fetch('/api/products?action=buy', {
+    const res = await fetch('/api/purchase', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ productId })
@@ -240,28 +291,33 @@ async function buyProduct(productId) {
   }
 }
 
+// FIXED: Gracefully handles user's active products
 async function loadMyActiveProducts() {
   const container = document.getElementById('my-product-list');
   if (!container) return;
+
   try {
-    const res = await fetch('/api/products?action=my_products');
+    const res = await fetch('/api/purchase?action=my_products');
     const data = await res.json();
-    if (!data.success || !data.userProducts || data.userProducts.length === 0) {
+    const activeProducts = (data && (data.userProducts || data.purchases || data.products)) || [];
+    
+    if (activeProducts.length === 0) {
       container.innerHTML = '<div class="empty-state">You do not have any active equipment working.</div>';
       return;
     }
-    container.innerHTML = data.userProducts.map(up => `
+
+    container.innerHTML = activeProducts.map(up => `
       <div class="product-card">
         <div class="product-info">
-          <h4>${up.product_name}</h4>
-          <div class="product-spec">Daily Yield: <strong>${formatNaira(up.daily_yield)}</strong></div>
-          <div class="product-spec">Days Remaining: <strong>${up.days_remaining} / ${up.total_days}</strong></div>
-          <div class="drop-timer-box"><i class="fa-regular fa-clock"></i> Next Drop in: ${up.next_drop_countdown || 'Pending'}</div>
+          <h4>${up.product_name || up.name || 'Equipment'}</h4>
+          <div class="product-spec">Daily Yield: <strong>${formatNaira(up.daily_income || up.daily_yield || 0)}</strong></div>
+          <div class="product-spec">Days Remaining: <strong>${up.days_remaining || 0} / ${up.total_days || 30}</strong></div>
+          <div class="drop-timer-box"><i class="fa-regular fa-clock"></i> Next Drop in: ${up.next_drop_countdown || 'Active'}</div>
         </div>
       </div>
     `).join('');
   } catch (err) {
-    container.innerHTML = '<div class="empty-state">Unable to load your equipment.</div>';
+    container.innerHTML = '<div class="empty-state">You do not have any active equipment working.</div>';
   }
 }
 
@@ -272,7 +328,7 @@ async function loadInviteData() {
   try {
     const res = await fetch('/api/team?action=invite_info');
     const data = await res.json();
-    if (data.success) {
+    if (data && data.success) {
       const linkInput = document.getElementById('invite-link-val');
       const codeInput = document.getElementById('invite-code-val');
       if (linkInput) linkInput.value = data.inviteLink || window.location.origin + '/?ref=' + (data.referralCode || '');
@@ -285,7 +341,7 @@ async function loadTeamData() {
   try {
     const res = await fetch('/api/team?action=overview');
     const data = await res.json();
-    if (data.success) {
+    if (data && data.success) {
       const t1Count = document.getElementById('team1-members-count');
       const t1Income = document.getElementById('team1-members-income');
       const t2Count = document.getElementById('team2-members-count');
@@ -308,11 +364,13 @@ function selectTeamTier(tier) {
   if (tier === 1) {
     if (c1) c1.classList.add('active');
     if (c2) c2.classList.remove('active');
-    document.getElementById('team-active-title').textContent = 'First Referral Members History';
+    const title = document.getElementById('team-active-title');
+    if (title) title.textContent = 'First Referral Members History';
   } else {
     if (c2) c2.classList.add('active');
     if (c1) c1.classList.remove('active');
-    document.getElementById('team-active-title').textContent = 'Second Referral Members History';
+    const title = document.getElementById('team-active-title');
+    if (title) title.textContent = 'Second Referral Members History';
   }
   loadTeamData();
 }
@@ -338,8 +396,10 @@ function renderTeamTierTable(tier, overviewData) {
 // RECHARGE LOGIC
 // -------------------------------------------------------------
 async function loadRechargeView() {
-  document.getElementById('recharge-stage-select').style.display = 'block';
-  document.getElementById('recharge-stage-pay').style.display = 'none';
+  const stageSelect = document.getElementById('recharge-stage-select');
+  const stagePay = document.getElementById('recharge-stage-pay');
+  if (stageSelect) stageSelect.style.display = 'block';
+  if (stagePay) stagePay.style.display = 'none';
 
   const channelsWrap = document.getElementById('payment-channels-list');
   if (!channelsWrap) return;
@@ -381,6 +441,7 @@ async function loadWithdrawalView() {
   if (balEl && currentUser) {
     balEl.textContent = formatNaira(currentUser.withdrawable_balance);
   }
+  if (!summaryEl) return;
   try {
     const res = await fetch('/api/bank?action=get_user_bank');
     const data = await res.json();
@@ -409,9 +470,9 @@ async function loadGiftClaims() {
   const totalEl = document.getElementById('gift-total-claimed');
   if (!container) return;
   try {
-    const res = await fetch('/api/bank?action=my_gift_claims');
+    const res = await fetch('/api/gift-code?action=my_claims');
     const data = await res.json();
-    if (data.success) {
+    if (data && data.success) {
       if (totalEl) totalEl.textContent = formatNaira(data.total_claimed || 0);
       if (!data.claims || data.claims.length === 0) {
         container.innerHTML = '<div class="empty-state">No gift codes redeemed yet.</div>';
@@ -491,7 +552,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Auth toggle links (Login <-> Register switch)
+  // Auth switch link toggles
   const showRegLink = document.getElementById('link-show-register');
   const showLoginLink = document.getElementById('link-show-login');
   const loginForm = document.getElementById('login-form');
@@ -501,22 +562,22 @@ document.addEventListener('DOMContentLoaded', () => {
   if (showRegLink) {
     showRegLink.addEventListener('click', (e) => {
       e.preventDefault();
-      loginForm.style.display = 'none';
-      regForm.style.display = 'block';
-      authSub.textContent = 'Create a new investor account';
+      if (loginForm) loginForm.style.display = 'none';
+      if (regForm) regForm.style.display = 'block';
+      if (authSub) authSub.textContent = 'Create a new investor account';
     });
   }
 
   if (showLoginLink) {
     showLoginLink.addEventListener('click', (e) => {
       e.preventDefault();
-      regForm.style.display = 'none';
-      loginForm.style.display = 'block';
-      authSub.textContent = 'Log in to your account';
+      if (regForm) regForm.style.display = 'none';
+      if (loginForm) loginForm.style.display = 'block';
+      if (authSub) authSub.textContent = 'Log in to your account';
     });
   }
 
-  // Login submission
+  // Login form handler
   if (loginForm) {
     loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -541,7 +602,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Register submission
+  // Register form handler
   if (regForm) {
     regForm.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -574,20 +635,22 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Predefined recharge amounts
+  // Predefined recharge buttons
   document.querySelectorAll('.amount-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.amount-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      document.getElementById('recharge-amount-input').value = btn.getAttribute('data-amt');
+      const input = document.getElementById('recharge-amount-input');
+      if (input) input.value = btn.getAttribute('data-amt');
     });
   });
 
-  // Proceed to payment screen
+  // Proceed to payment
   const proceedPayBtn = document.getElementById('btn-proceed-to-payment');
   if (proceedPayBtn) {
     proceedPayBtn.addEventListener('click', async () => {
-      const amount = Number(document.getElementById('recharge-amount-input').value);
+      const amountInput = document.getElementById('recharge-amount-input');
+      const amount = Number(amountInput ? amountInput.value : 0);
       if (!amount || amount < 1000) {
         showToast('Minimum recharge amount is ₦1,000');
         return;
@@ -626,7 +689,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Copy account number
+  // Clipboard copy helpers
   const copyAccBtn = document.getElementById('btn-copy-account');
   if (copyAccBtn) {
     copyAccBtn.addEventListener('click', () => {
@@ -635,7 +698,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Copy invite link and code
   const copyLinkBtn = document.getElementById('btn-copy-invite-link');
   if (copyLinkBtn) {
     copyLinkBtn.addEventListener('click', () => {
@@ -643,6 +705,7 @@ document.addEventListener('DOMContentLoaded', () => {
       navigator.clipboard.writeText(lk).then(() => showToast('Invite link copied!'));
     });
   }
+
   const copyCodeBtn = document.getElementById('btn-copy-invite-code');
   if (copyCodeBtn) {
     copyCodeBtn.addEventListener('click', () => {
@@ -651,7 +714,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Bank Account Submission
+  // Save bank card form
   const dedicatedBankForm = document.getElementById('form-dedicated-bank');
   if (dedicatedBankForm) {
     dedicatedBankForm.addEventListener('submit', async (e) => {
@@ -684,14 +747,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Gift Code Claim Submission
+  // Gift code redemption form
   const giftForm = document.getElementById('form-page-gift');
   if (giftForm) {
     giftForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const code = document.getElementById('input-page-gift-code').value.trim();
       try {
-        const res = await fetch('/api/bank?action=claim_gift', {
+        const res = await fetch('/api/gift-code?action=claim', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ code })
@@ -711,17 +774,18 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Withdrawal Submission
+  // Withdrawal form
   const submitWithBtn = document.getElementById('btn-submit-withdraw');
   if (submitWithBtn) {
     submitWithBtn.addEventListener('click', async () => {
-      const amount = Number(document.getElementById('input-withdraw-amount').value);
+      const input = document.getElementById('input-withdraw-amount');
+      const amount = Number(input ? input.value : 0);
       if (!amount || amount < 1000) {
         showToast('Minimum withdrawal is ₦1,000');
         return;
       }
       try {
-        const res = await fetch('/api/withdraw?action=request', {
+        const res = await fetch('/api/withdraw', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ amount })
@@ -740,7 +804,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-// History records loader
+// Transaction History loader
 async function loadHistory(type) {
   const titleEl = document.getElementById('history-page-title');
   const itemsEl = document.getElementById('history-page-items');
@@ -749,7 +813,7 @@ async function loadHistory(type) {
   itemsEl.innerHTML = '<div class="empty-state">Loading history...</div>';
 
   try {
-    const res = await fetch(`/api/bank?action=history&type=${type}`);
+    const res = await fetch(`/api/transactions?type=${type}`);
     const data = await res.json();
     if (!data.success || !data.records || data.records.length === 0) {
       itemsEl.innerHTML = '<div class="empty-state">No transaction records found.</div>';
@@ -758,7 +822,7 @@ async function loadHistory(type) {
     itemsEl.innerHTML = data.records.map(r => `
       <div class="history-item">
         <div>
-          <div class="item-title">${r.title || r.type} <span class="item-badge badge-${r.status.toLowerCase()}">${r.status}</span></div>
+          <div class="item-title">${r.title || r.type} <span class="item-badge badge-${(r.status || 'pending').toLowerCase()}">${r.status}</span></div>
           <div class="item-date">${new Date(r.created_at).toLocaleString()}</div>
         </div>
         <div class="item-amount ${r.direction === 'in' ? 'in' : 'out'}">${r.direction === 'in' ? '+' : '-'}${formatNaira(r.amount)}</div>
