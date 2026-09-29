@@ -911,7 +911,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Save Bank Details Form
+  // Save Bank Details Form (FIXED WITH EXPLICIT USER_ID)
   const dedicatedBankForm = document.getElementById('form-dedicated-bank');
   if (dedicatedBankForm) {
     dedicatedBankForm.addEventListener('submit', async (e) => {
@@ -919,6 +919,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const bankName = document.getElementById('bank-input-name').value.trim();
       const accountNumber = document.getElementById('bank-input-number').value.trim();
       const accountHolder = document.getElementById('bank-input-holder').value.trim();
+      const savedUserId = localStorage.getItem('novavest_session') || '';
 
       if (accountNumber.length !== 10) {
         showToast('NUBAN Account Number must be 10 digits.');
@@ -926,16 +927,22 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       try {
-        const res = await fetch('/api/bank?action=save_user_bank', {
+        const res = await fetch(`/api/bank?action=save_user_bank&user_id=${encodeURIComponent(savedUserId)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ bankName, accountNumber, accountHolder })
+          body: JSON.stringify({ 
+            bankName, 
+            accountNumber, 
+            accountHolder,
+            user_id: savedUserId 
+          })
         });
         const data = await res.json();
         if (data.success) {
           showToast('Bank details saved successfully!');
           userHasLinkedBank = true;
+          await loadWithdrawalView();
           switchView('withdrawal');
         } else {
           showToast(data.message || 'Failed to save bank.');
