@@ -100,7 +100,6 @@ export default async function handler(req, res) {
       min_withdrawal: '1000'
     };
 
-    // 2. User & Synchronous Yield Settlement
     let user = null;
     let myEquipment = [];
 
@@ -147,7 +146,6 @@ export default async function handler(req, res) {
         }
 
         const now = Date.now();
-        let totalIncomeToAddNow = 0;
         const prodMap = new Map();
         products.forEach(p => prodMap.set(String(p.id), p));
 
@@ -160,57 +158,85 @@ export default async function handler(req, res) {
             const totalRev = Number(item.total_revenue || (daily * days));
 
             const createdMs = item.created_at ? new Date(item.created_at).getTime() : now;
-            let lastDropMs = item.last_drop_time ? new Date(item.last_drop_time).getTime() : createdMs;
+            
+            // If next_drop_time is missing, initialize it to exactly 24 hours after creation
+            let nextDropMs = item.next_drop_time 
+              ? new Date(item.next_drop_time).getTime() 
+              : (createdMs + (24 * 60 * 60 * 1000));
 
-            const intervalMs = 24 * 60 * 60 * 1000; // 24 Hours in ms
-            const cyclesDue = Math.floor((now - lastDropMs) / intervalMs);
+            let currentEarned = Number(item.total_earned || item.dropped_income || 0);
 
-            let newDropped = Number(item.total_earned || item.dropped_income || 0);
+            // STRICT CHECK: Only credit when the countdown has reached or passed 0
+            if (now >= nextDropMs && daily > 0 && currentEarned < totalRev) {
+              const updatedEarned = currentEarned + daily;
+              const newNextDropIso = new Date(now + (24 * 60 * 60 * 1000)).toISOString();
+              const nowIso = new Date(now).toISOString();
 
-            // ONLY credit if a full 24-hr countdown has completed
-            if (cyclesDue > 0 && daily > 0) {
-              const incomeGained = cyclesDue * daily;
-              totalIncomeToAddNow += incomeGained;
-              newDropped += incomeGained;
-
-              lastDropMs = lastDropMs + (cyclesDue * intervalMs);
-              const nextDropTimeIso = new Date(lastDropMs + intervalMs).toISOString();
-              const lastDropTimeIso = new Date(lastDropMs).toISOString();
-
-              // CRITICAL: Await the database write so it does not repeat on next refresh!
-              try {
-                if (tableName === 'purchases') {
-                  await sql`
-                    UPDATE purchases 
-                    SET last_drop_time = ${lastDropTimeIso},
-                        next_drop_time = ${nextDropTimeIso},
-                        total_earned = ${newDropped}
-                    WHERE id = ${item.id}
-                  `;
-                } else if (tableName === 'user_products') {
-                  await sql`
-                    UPDATE user_products 
-                    SET last_drop_time = ${lastDropTimeIso},
-                        next_drop_time = ${nextDropTimeIso},
-                        total_earned = ${newDropped}
-                    WHERE id = ${item.id}
-                  `;
-                } else {
-                  await sql`
-                    UPDATE user_investments 
-                    SET last_drop_time = ${lastDropTimeIso},
-                        next_drop_time = ${nextDropTimeIso},
-                        total_earned = ${newDropped}
-                    WHERE id = ${item.id}
-                  `;
-                }
-              } catch (updateErr) {
-                console.error("Failed to commit drop timestamp:", updateErr);
+              // 1. Lock the package next drop time into the database
+              if (tableName === 'purchases') {
+                await sql`
+                  UPDATE purchases 
+                  SET next_drop_time = ${newNextDropIso},
+                      last_drop_time = ${nowIso},
+                      total_earned = ${updatedEarned}
+                  WHERE id = ${item.id}
+                `;
+              } else if (tableName === 'user_products') {
+                await sql`
+                  UPDATE user_products 
+                  SET next_drop_time = ${newNextDropIso},
+                      last_drop_time = ${nowIso},
+                      total_earned = ${updatedEarned}
+                  WHERE id = ${item.id}
+                `;
+              } else {
+                await sql`
+                  UPDATE user_investments 
+                  SET next_drop_time = ${newNextDropIso},
+                      last_drop_time = ${nowIso},
+                      total_earned = ${updatedEarned}
+                  WHERE id = ${item.id}
+                `;
               }
+
+              // 2. Add the daily yield to the user's withdrawable balance
+              await sql`
+                UPDATE users 
+                SET withdrawable_balance = COALESCE(withdrawable_balance, 0) + ${daily}
+                WHERE id::text = ${String(rawUser.id)}
+              `;
+
+              // 3. Register on Transaction History table
+              try {
+                await sql`
+                  INSERT INTO transactions (user_id, title, type, amount, direction, status, created_at)
+                  VALUES (
+                    ${String(rawUser.id)}, 
+                    ${(item.name || matched.name || 'Equipment') + ' Daily Yield'}, 
+                    'income', 
+                    ${daily}, 
+                    'in', 
+                    'completed', 
+                    NOW()
+                  )
+                `;
+              } catch (txErr) {
+                // Support alternate transactions table schemas
+                try {
+                  await sql`
+                    INSERT INTO user_transactions (user_id, type, amount, status, created_at)
+                    VALUES (${String(rawUser.id)}, 'income', ${daily}, 'completed', NOW())
+                  `;
+                } catch (txErr2) {}
+              }
+
+              // Update in-memory state for this response
+              currentEarned = updatedEarned;
+              nextDropMs = now + (24 * 60 * 60 * 1000);
+              rawUser.withdrawable_balance = Number(rawUser.withdrawable_balance || 0) + daily;
             }
 
-            const nextDropTime = new Date(lastDropMs + intervalMs).toISOString();
-            const remainingIncome = Math.max(0, totalRev - newDropped);
+            const remainingIncome = Math.max(0, totalRev - currentEarned);
 
             myEquipment.push({
               id: item.id,
@@ -224,36 +250,14 @@ export default async function handler(req, res) {
               duration_days: days,
               period_days: days,
               total_revenue: totalRev,
-              dropped_income: newDropped,
+              dropped_income: currentEarned,
               remaining_income: remainingIncome,
               status: (item.status || 'Active').charAt(0).toUpperCase() + (item.status || 'Active').slice(1).toLowerCase(),
               created_at: item.created_at || new Date().toISOString(),
-              last_drop_time: new Date(lastDropMs).toISOString(),
-              next_drop_time: nextDropTime
+              next_drop_time: new Date(nextDropMs).toISOString()
             });
           } catch (errItem) {
-            console.error("Error processing item:", errItem);
-          }
-        }
-
-        // Apply completed payout to withdrawable balance in the database
-        let currentWithdrawable = getWithdrawBal(rawUser);
-        if (totalIncomeToAddNow > 0) {
-          currentWithdrawable += totalIncomeToAddNow;
-          try {
-            await sql`
-              UPDATE users 
-              SET withdrawable_balance = COALESCE(withdrawable_balance, 0) + ${totalIncomeToAddNow}
-              WHERE id::text = ${String(rawUser.id)}
-            `;
-          } catch (errBal) {
-            try {
-              await sql`
-                UPDATE users 
-                SET income_balance = COALESCE(income_balance, 0) + ${totalIncomeToAddNow}
-                WHERE id::text = ${String(rawUser.id)}
-              `;
-            } catch (errBal2) {}
+            console.error("Item calculation guard:", errItem);
           }
         }
 
@@ -264,9 +268,9 @@ export default async function handler(req, res) {
           referral_code: rawUser.referral_code || ('NV' + rawUser.id),
           deposit_balance: getDepositBal(rawUser),
           balance: getDepositBal(rawUser),
-          withdrawable_balance: currentWithdrawable,
-          withdrawal_balance: currentWithdrawable,
-          income_balance: currentWithdrawable,
+          withdrawable_balance: getWithdrawBal(rawUser),
+          withdrawal_balance: getWithdrawBal(rawUser),
+          income_balance: getWithdrawBal(rawUser),
           total_deposited: Number(rawUser.total_deposited || 0),
           total_withdrawn: Number(rawUser.total_withdrawn || 0),
           created_at: rawUser.created_at
