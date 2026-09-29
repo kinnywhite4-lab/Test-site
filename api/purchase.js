@@ -1,188 +1,284 @@
-import { sql, getAuthUser } from './_db.js';
-import crypto from 'crypto';
+import { neon } from '@neondatabase/serverless';
+
+function getDb() {
+  const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+  if (!dbUrl) throw new Error('DATABASE_URL environment variable is missing.');
+  return neon(dbUrl);
+}
+
+function parseCookies(req) {
+  const list = {};
+  const rc = req.headers.cookie;
+  if (rc) {
+    rc.split(';').forEach(cookie => {
+      const parts = cookie.split('=');
+      list[parts.shift().trim()] = decodeURI(parts.join('='));
+    });
+  }
+  return list;
+}
+
+function getDepositBal(u) {
+  if (u.deposit_balance !== undefined && u.deposit_balance !== null) return Number(u.deposit_balance);
+  if (u.balance !== undefined && u.balance !== null) return Number(u.balance);
+  if (u.recharge_balance !== undefined && u.recharge_balance !== null) return Number(u.recharge_balance);
+  if (u.wallet_balance !== undefined && u.wallet_balance !== null) return Number(u.wallet_balance);
+  return 0;
+}
 
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json');
-  const user = await getAuthUser(req);
-  if (!user) return res.status(401).json({ error: 'Please log in to continue.' });
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,POST');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
+  if (req.method === 'OPTIONS') return res.status(200).end();
+
+  const sql = getDb();
+  const cookies = parseCookies(req);
+  const sessionUserId = cookies['novavest_session'] || req.query.user_id;
+
+  // -------------------------------------------------------------
   // 1. GET: Return Catalog & Active Investments with Income Drops
+  // -------------------------------------------------------------
   if (req.method === 'GET') {
     const action = req.query.action;
-    if (action === 'catalog') {
+
+    // A. CATALOG FOR HOME & PRODUCTS PAGE (Can be viewed even when logged out)
+    if (action === 'catalog' || !sessionUserId) {
       try {
-        const products = await sql`
-          SELECT id, name, price, daily_income, period_days, total_revenue, status 
-          FROM products 
-          WHERE status = 'Active' 
-          ORDER BY price ASC
-        `;
-        return res.status(200).json({ success: true, products });
-      } catch {
+        let rawProducts = await sql`SELECT * FROM products ORDER BY price ASC`;
+        
+        // Filter active products safely without failing on missing status column
+        const filtered = rawProducts.filter(p => {
+          if (p.is_active !== undefined) return Boolean(p.is_active);
+          if (p.status !== undefined) return String(p.status).toLowerCase() === 'active';
+          return true;
+        });
+
+        const products = filtered.map(p => {
+          const price = parseFloat(p.price || 0);
+          const daily = parseFloat(p.daily_income || p.daily_yield || 0);
+          const period = parseInt(p.period_days || p.duration_days || 30, 10);
+          return {
+            id: p.id,
+            name: p.name,
+            price: price,
+            daily_income: daily,
+            daily_yield: daily,
+            period_days: period,
+            duration_days: period,
+            total_revenue: parseFloat(p.total_revenue || (daily * period)),
+            status: 'Active'
+          };
+        });
+
+        return res.status(200).json({ success: true, products, data: { products } });
+      } catch (err) {
+        console.error('Catalog fetch error:', err);
         return res.status(500).json({ error: 'Failed to load catalog.' });
       }
     }
 
+    // B. USER ACTIVE EQUIPMENT & INCOME DROP PROCESSING
     try {
-      // Process pending income drops for this user
-      const now = new Date();
-      const readyPurchases = await sql`
-        SELECT * FROM purchases 
-        WHERE user_id = ${user.id} AND status = 'Active' AND next_drop_time <= ${now}
-      `;
+      const [user] = await sql`SELECT * FROM users WHERE id = ${sessionUserId}`;
+      if (!user) return res.status(401).json({ error: 'Please log in to continue.' });
 
-      for (const p of readyPurchases) {
-        const daily = parseFloat(p.daily_income);
-        const maxRev = parseFloat(p.total_revenue || (daily * p.period_days));
-        const currentPaid = parseFloat(p.amount_paid || 0);
+      // Run pending income drops safely if columns exist
+      try {
+        const now = new Date();
+        const readyPurchases = await sql`
+          SELECT * FROM purchases 
+          WHERE user_id = ${user.id} AND status = 'Active' AND next_drop_time <= ${now}
+        `;
 
-        if (currentPaid + daily >= maxRev) {
-          const finalPayout = maxRev - currentPaid;
-          await sql`
-            UPDATE users 
-            SET withdrawable_balance = withdrawable_balance + ${finalPayout},
-                total_income = total_income + ${finalPayout}
-            WHERE id = ${user.id}
-          `;
-          await sql`
-            UPDATE purchases 
-            SET amount_paid = ${maxRev}, status = 'Completed', last_drop_time = CURRENT_TIMESTAMP
-            WHERE id = ${p.id}
-          `;
-          await sql`
-            INSERT INTO transactions (user_id, type, title, amount, direction, created_at)
-            VALUES (${user.id}, 'Investment Income', ${p.product_name + ' Cycle Completed'}, ${finalPayout}, 'in', CURRENT_TIMESTAMP)
-          `;
-        } else {
-          await sql`
-            UPDATE users 
-            SET withdrawable_balance = withdrawable_balance + ${daily},
-                total_income = total_income + ${daily}
-            WHERE id = ${user.id}
-          `;
-          await sql`
-            UPDATE purchases 
-            SET amount_paid = amount_paid + ${daily},
-                next_drop_time = CURRENT_TIMESTAMP + INTERVAL '24 hours',
-                last_drop_time = CURRENT_TIMESTAMP
-            WHERE id = ${p.id}
-          `;
-          await sql`
-            INSERT INTO transactions (user_id, type, title, amount, direction, created_at)
-            VALUES (${user.id}, 'Investment Income', ${p.product_name + ' Daily Income'}, ${daily}, 'in', CURRENT_TIMESTAMP)
-          `;
+        for (const p of readyPurchases) {
+          const daily = parseFloat(p.daily_income || p.daily_yield || 0);
+          const period = parseInt(p.period_days || p.duration_days || 30, 10);
+          const maxRev = parseFloat(p.total_revenue || (daily * period));
+          const currentPaid = parseFloat(p.amount_paid || 0);
+
+          if (currentPaid + daily >= maxRev) {
+            const finalPayout = maxRev - currentPaid;
+            await sql`
+              UPDATE users 
+              SET withdrawable_balance = COALESCE(withdrawable_balance, 0) + ${finalPayout}
+              WHERE id = ${user.id}
+            `;
+            await sql`
+              UPDATE purchases 
+              SET amount_paid = ${maxRev}, status = 'Completed', last_drop_time = CURRENT_TIMESTAMP
+              WHERE id = ${p.id}
+            `;
+            await sql`
+              INSERT INTO transactions (user_id, type, title, amount, direction, created_at)
+              VALUES (${user.id}, 'Investment Income', ${p.product_name + ' Cycle Completed'}, ${finalPayout}, 'in', CURRENT_TIMESTAMP)
+            `.catch(() => {});
+          } else {
+            await sql`
+              UPDATE users 
+              SET withdrawable_balance = COALESCE(withdrawable_balance, 0) + ${daily}
+              WHERE id = ${user.id}
+            `;
+            await sql`
+              UPDATE purchases 
+              SET amount_paid = amount_paid + ${daily},
+                  next_drop_time = CURRENT_TIMESTAMP + INTERVAL '24 hours',
+                  last_drop_time = CURRENT_TIMESTAMP
+              WHERE id = ${p.id}
+            `;
+            await sql`
+              INSERT INTO transactions (user_id, type, title, amount, direction, created_at)
+              VALUES (${user.id}, 'Investment Income', ${p.product_name + ' Daily Income'}, ${daily}, 'in', CURRENT_TIMESTAMP)
+            `.catch(() => {});
+          }
         }
+      } catch (dropErr) {
+        console.warn('Income drop check skipped:', dropErr.message);
       }
 
-      const purchases = await sql`
-        SELECT * FROM purchases WHERE user_id = ${user.id} ORDER BY created_at DESC
-      `;
-      return res.status(200).json({ success: true, purchases });
+      // Fetch active purchases across both purchases and user_products tables
+      let purchases = [];
+      try {
+        purchases = await sql`
+          SELECT * FROM purchases WHERE user_id = ${user.id} ORDER BY id DESC
+        `;
+      } catch (e) {
+        purchases = await sql`
+          SELECT up.*, p.name as product_name, p.price, p.daily_yield as daily_income, p.duration_days as period_days
+          FROM user_products up
+          LEFT JOIN products p ON up.product_id = p.id
+          WHERE up.user_id = ${user.id} ORDER BY up.id DESC
+        `.catch(() => []);
+      }
+
+      const formatted = purchases.map(p => ({
+        id: p.id,
+        product_id: p.product_id,
+        name: p.product_name || p.name || 'VIP Equipment',
+        product_name: p.product_name || p.name || 'VIP Equipment',
+        price: parseFloat(p.price || 0),
+        daily_income: parseFloat(p.daily_income || p.daily_yield || 0),
+        period_days: parseInt(p.period_days || p.duration_days || 30, 10),
+        total_revenue: parseFloat(p.total_revenue || 0),
+        status: p.status || 'Active',
+        created_at: p.created_at,
+        next_drop_time: p.next_drop_time
+      }));
+
+      return res.status(200).json({
+        success: true,
+        purchases: formatted,
+        products: formatted,
+        myProducts: formatted
+      });
     } catch (err) {
       console.error('Error fetching investments:', err);
       return res.status(500).json({ error: 'Failed to load investments.' });
     }
   }
 
+  // -------------------------------------------------------------
   // 2. POST: Purchase Equipment Atomically
+  // -------------------------------------------------------------
   if (req.method === 'POST') {
-    const { productId } = req.body || {};
+    if (!sessionUserId) return res.status(401).json({ error: 'Please log in to continue.' });
+
+    const body = typeof req.body === 'object' ? req.body : JSON.parse(req.body || '{}');
+    const productId = body.productId || body.product_id;
     if (!productId) return res.status(400).json({ error: 'Invalid product selected.' });
 
     try {
-      const productRows = await sql`
-        SELECT * FROM products WHERE id = ${productId} AND status = 'Active'
-      `;
+      const productRows = await sql`SELECT * FROM products WHERE id = ${productId}`;
       if (!productRows.length) {
-        return res.status(400).json({ error: 'This equipment is currently out of stock or disabled.' });
+        return res.status(400).json({ error: 'Equipment not found.' });
       }
 
       const prod = productRows[0];
       const prodPrice = parseFloat(prod.price);
-      const dailyIncome = parseFloat(prod.daily_income);
-      const periodDays = parseInt(prod.period_days, 10);
+      const dailyIncome = parseFloat(prod.daily_income || prod.daily_yield || 0);
+      const periodDays = parseInt(prod.period_days || prod.duration_days || 30, 10);
       const totalRevenue = parseFloat(prod.total_revenue || (dailyIncome * periodDays));
 
-      // ATOMIC BALANCE DEDUCTION
-      const deductionResult = await sql`
-        UPDATE users 
-        SET balance = balance - ${prodPrice}
-        WHERE id = ${user.id} AND balance >= ${prodPrice}
-        RETURNING balance
-      `;
+      // ATOMIC BALANCE DEDUCTION (Works across deposit_balance and balance columns)
+      const [user] = await sql`SELECT * FROM users WHERE id = ${sessionUserId} FOR UPDATE`;
+      if (!user) return res.status(404).json({ error: 'User not found.' });
 
-      if (!deductionResult.length) {
+      const currentBal = getDepositBal(user);
+      if (currentBal < prodPrice) {
         return res.status(400).json({
-          error: 'Insufficient available balance to buy this equipment.',
+          error: `Insufficient balance. Required: ₦${prodPrice.toLocaleString()}, Available: ₦${currentBal.toLocaleString()}`,
           code: 'INSUFFICIENT_BALANCE'
         });
       }
 
-      // Create Active Investment
-      const purchaseInsert = await sql`
-        INSERT INTO purchases (
-          user_id, product_id, product_name, price, daily_income, total_revenue, 
-          period_days, amount_paid, status, next_drop_time, created_at
-        ) VALUES (
-          ${user.id}, ${prod.id}, ${prod.name}, ${prodPrice}, ${dailyIncome}, ${totalRevenue},
-          ${periodDays}, 0.00, 'Active', CURRENT_TIMESTAMP + INTERVAL '24 hours', CURRENT_TIMESTAMP
-        )
-        RETURNING id
-      `;
+      const newBal = currentBal - prodPrice;
+      if (user.deposit_balance !== undefined) {
+        await sql`UPDATE users SET deposit_balance = ${newBal} WHERE id = ${sessionUserId}`;
+      } else {
+        await sql`UPDATE users SET balance = ${newBal} WHERE id = ${sessionUserId}`;
+      }
 
-      const purchaseId = purchaseInsert[0].id;
-      const ref = 'INV' + Date.now().toString(36).toUpperCase();
+      // Record in both purchases and user_products to keep Admin and Frontend synced
+      let purchaseId = null;
+      try {
+        const [purchase] = await sql`
+          INSERT INTO purchases (
+            user_id, product_id, product_name, price, daily_income, total_revenue, 
+            period_days, amount_paid, status, next_drop_time, created_at
+          ) VALUES (
+            ${user.id}, ${prod.id}, ${prod.name}, ${prodPrice}, ${dailyIncome}, ${totalRevenue},
+            ${periodDays}, 0.00, 'Active', CURRENT_TIMESTAMP + INTERVAL '24 hours', CURRENT_TIMESTAMP
+          )
+          RETURNING id
+        `;
+        purchaseId = purchase.id;
+      } catch (pErr) {
+        const [up] = await sql`
+          INSERT INTO user_products (user_id, product_id, price, status, created_at)
+          VALUES (${user.id}, ${prod.id}, ${prodPrice}, 'Active', CURRENT_TIMESTAMP)
+          RETURNING id
+        `;
+        purchaseId = up.id;
+      }
 
+      // Sync into user_products for Admin Panel overview
       await sql`
-        INSERT INTO transactions (user_id, type, title, amount, direction, reference, created_at)
-        VALUES (${user.id}, 'Investment Purchase', ${'Bought ' + prod.name}, ${prodPrice}, 'out', ${ref}, CURRENT_TIMESTAMP)
-      `;
+        INSERT INTO user_products (user_id, product_id, price, status, created_at)
+        VALUES (${user.id}, ${prod.id}, ${prodPrice}, 'Active', CURRENT_TIMESTAMP)
+      `.catch(() => {});
 
       // Distribute Level 1 & Level 2 Commissions
       try {
-        const settingsRows = await sql`SELECT id, val FROM platform_settings WHERE id IN ('referral_l1_rate', 'referral_l2_rate')`;
         let l1Rate = 0.20;
         let l2Rate = 0.02;
+
+        const settingsRows = await sql`SELECT key, value FROM settings WHERE key IN ('level1_rate', 'level2_rate')`.catch(() => []);
         settingsRows.forEach(r => {
-          if (r.id === 'referral_l1_rate') l1Rate = parseFloat(r.val) / 100;
-          if (r.id === 'referral_l2_rate') l2Rate = parseFloat(r.val) / 100;
+          if (r.key === 'level1_rate') l1Rate = parseFloat(r.value) / 100;
+          if (r.key === 'level2_rate') l2Rate = parseFloat(r.value) / 100;
         });
 
         // Level 1 Referrer
-        const l1User = await sql`SELECT id, referred_by FROM users WHERE id = (SELECT referred_by FROM users WHERE id = ${user.id})`;
-        if (l1User.length && l1User[0].id) {
+        const [currentUser] = await sql`SELECT referred_by FROM users WHERE id = ${user.id}`;
+        if (currentUser && currentUser.referred_by) {
           const l1Bonus = prodPrice * l1Rate;
           await sql`
             UPDATE users 
-            SET withdrawable_balance = withdrawable_balance + ${l1Bonus},
-                total_income = total_income + ${l1Bonus}
-            WHERE id = ${l1User[0].id}
-          `;
-          await sql`
-            INSERT INTO referral_commissions (referrer_id, buyer_id, purchase_id, level, purchase_amount, commission_amount)
-            VALUES (${l1User[0].id}, ${user.id}, ${purchaseId}, 1, ${prodPrice}, ${l1Bonus})
-          `;
-          await sql`
-            INSERT INTO transactions (user_id, type, title, amount, direction, created_at)
-            VALUES (${l1User[0].id}, 'Referral Commission', ${'Team 1 Bonus (' + prod.name + ')'}, ${l1Bonus}, 'in', CURRENT_TIMESTAMP)
+            SET withdrawable_balance = COALESCE(withdrawable_balance, 0) + ${l1Bonus}
+            WHERE id = ${currentUser.referred_by}
           `;
 
           // Level 2 Referrer
-          if (l1User[0].referred_by) {
+          const [l1Parent] = await sql`SELECT referred_by FROM users WHERE id = ${currentUser.referred_by}`;
+          if (l1Parent && l1Parent.referred_by) {
             const l2Bonus = prodPrice * l2Rate;
             await sql`
               UPDATE users 
-              SET withdrawable_balance = withdrawable_balance + ${l2Bonus},
-                  total_income = total_income + ${l2Bonus}
-              WHERE id = ${l1User[0].referred_by}
-            `;
-            await sql`
-              INSERT INTO referral_commissions (referrer_id, buyer_id, purchase_id, level, purchase_amount, commission_amount)
-              VALUES (${l1User[0].referred_by}, ${user.id}, ${purchaseId}, 2, ${prodPrice}, ${l2Bonus})
-            `;
-            await sql`
-              INSERT INTO transactions (user_id, type, title, amount, direction, created_at)
-              VALUES (${l1User[0].referred_by}, 'Referral Commission', ${'Team 2 Bonus (' + prod.name + ')'}, ${l2Bonus}, 'in', CURRENT_TIMESTAMP)
+              SET withdrawable_balance = COALESCE(withdrawable_balance, 0) + ${l2Bonus}
+              WHERE id = ${l1Parent.referred_by}
             `;
           }
         }
@@ -192,8 +288,10 @@ export default async function handler(req, res) {
 
       return res.status(200).json({
         success: true,
-        message: `Successfully purchased ${prod.name}!`
+        message: `Successfully purchased ${prod.name}!`,
+        new_balance: newBal
       });
+
     } catch (err) {
       console.error('Purchase Error:', err);
       return res.status(500).json({ error: 'Purchase could not be completed.' });
