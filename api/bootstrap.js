@@ -36,7 +36,7 @@ function getWithdrawBal(u) {
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,POST');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -128,7 +128,6 @@ export default async function handler(req, res) {
       if (rawUser) {
         let rawPurchases = [];
 
-        // Check purchase tables safely
         try {
           rawPurchases = await sql`SELECT * FROM purchases WHERE user_id = ${rawUser.id} ORDER BY id DESC`;
         } catch (errP1) {
@@ -163,7 +162,7 @@ export default async function handler(req, res) {
           }
         }
 
-        // Fetch existing income drop transactions to prevent repeat additions
+        // Read income transactions strictly to show Money Paid Out (NO UPDATES)
         let existingDrops = [];
         try {
           existingDrops = await sql`
@@ -190,65 +189,21 @@ export default async function handler(req, res) {
             const totalRev = Number(item.total_revenue || (daily * days));
             const createdMs = item.created_at ? new Date(item.created_at).getTime() : now;
 
-            // Find drop transactions recorded specifically for this item
             const itemDrops = existingDrops.filter(d => 
-              d.title && d.title.includes(item.name || matched.name || 'Equipment')
+              d.title && d.title.includes(String(item.id))
             );
 
-            // True money paid out is calculated strictly from completed transactions
             let currentEarned = itemDrops.reduce((acc, d) => acc + Number(d.amount || 0), 0);
             if (currentEarned === 0 && item.total_earned) {
               currentEarned = Number(item.total_earned);
             }
 
-            // Determine latest drop time
             let latestDropMs = createdMs;
             if (itemDrops.length > 0 && itemDrops[0].created_at) {
               latestDropMs = new Date(itemDrops[0].created_at).getTime();
             }
 
-            let nextDropMs = latestDropMs + intervalMs;
-
-            // ONLY CREDIT IF 24 FULL HOURS HAVE PASSED SINCE THE LAST DROP TRANSACTION
-            if (now >= nextDropMs && daily > 0 && currentEarned < totalRev) {
-              // 1. Immediately insert a transaction record to seal the lock
-              try {
-                await sql`
-                  INSERT INTO transactions (user_id, title, type, amount, direction, status, created_at)
-                  VALUES (
-                    ${String(rawUser.id)}, 
-                    ${(item.name || matched.name || 'Equipment') + ' Daily Yield (#' + item.id + ')'}, 
-                    'income', 
-                    ${daily}, 
-                    'in', 
-                    'completed', 
-                    NOW()
-                  )
-                `;
-              } catch (txErr) {}
-
-              // 2. Add strictly that single day's yield to the withdrawable balance
-              try {
-                await sql`
-                  UPDATE users 
-                  SET withdrawable_balance = COALESCE(withdrawable_balance, 0) + ${daily}
-                  WHERE id = ${rawUser.id}
-                `;
-              } catch (eU) {
-                try {
-                  await sql`
-                    UPDATE users 
-                    SET withdrawable_balance = COALESCE(withdrawable_balance, 0) + ${daily}
-                    WHERE id::text = ${String(rawUser.id)}
-                  `;
-                } catch (eU2) {}
-              }
-
-              currentEarned += daily;
-              nextDropMs = now + intervalMs;
-              rawUser.withdrawable_balance = Number(rawUser.withdrawable_balance || 0) + daily;
-            }
-
+            let nextDropMs = item.next_drop_time ? new Date(item.next_drop_time).getTime() : (latestDropMs + intervalMs);
             const remainingIncome = Math.max(0, totalRev - currentEarned);
 
             myEquipment.push({
