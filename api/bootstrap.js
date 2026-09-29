@@ -39,9 +39,7 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,POST');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
 
   const sql = getDb();
 
@@ -49,7 +47,7 @@ export default async function handler(req, res) {
     const cookies = parseCookies(req);
     const sessionUserId = cookies['novavest_session'] || req.query.user_id || req.headers['x-user-id'];
 
-    // 1. Fetch products from database
+    // 1. Fetch products
     let rawProducts = [];
     try {
       rawProducts = await sql`SELECT * FROM products ORDER BY price ASC`;
@@ -100,49 +98,41 @@ export default async function handler(req, res) {
       telegram_group: 'https://t.me/novavest_group',
       telegram_channel: 'https://t.me/novavest_channel'
     };
-
     try {
       const settingRows = await sql`SELECT key, value FROM settings`;
       settingRows.forEach(r => { settings[r.key] = r.value; });
     } catch (e) {}
 
-    // 3. Fetch user and purchased equipment
+    // 3. User & Automatic Yield Settlement Engine
     let user = null;
     let myEquipment = [];
 
     if (sessionUserId) {
       const userRows = await sql`SELECT * FROM users WHERE id = ${sessionUserId} LIMIT 1`.catch(() => []);
-      const rawUser = userRows[0];
+      let rawUser = userRows[0];
 
       if (rawUser && !rawUser.is_banned) {
-        user = {
-          id: rawUser.id,
-          phone: rawUser.phone || rawUser.phone_number || '',
-          phone_number: rawUser.phone || rawUser.phone_number || '',
-          referral_code: rawUser.referral_code || '',
-          deposit_balance: getDepositBal(rawUser),
-          balance: getDepositBal(rawUser),
-          withdrawable_balance: getWithdrawBal(rawUser),
-          withdrawal_balance: getWithdrawBal(rawUser),
-          total_deposited: Number(rawUser.total_deposited || 0),
-          total_withdrawn: Number(rawUser.total_withdrawn || 0),
-          created_at: rawUser.created_at
-        };
-
         let rawPurchases = [];
+        let tableName = 'user_products';
+
         try {
           rawPurchases = await sql`SELECT * FROM user_products WHERE user_id = ${sessionUserId} ORDER BY id DESC`;
         } catch (e1) {
           try {
             rawPurchases = await sql`SELECT * FROM user_investments WHERE user_id = ${sessionUserId} ORDER BY id DESC`;
+            tableName = 'user_investments';
           } catch (e2) {
             try {
               rawPurchases = await sql`SELECT * FROM purchases WHERE user_id = ${sessionUserId} ORDER BY id DESC`;
+              tableName = 'purchases';
             } catch (e3) {
               rawPurchases = [];
             }
           }
         }
+
+        const now = Date.now();
+        let totalPendingIncomeToCredit = 0;
 
         const prodMap = new Map();
         products.forEach(p => prodMap.set(String(p.id), p));
@@ -153,6 +143,34 @@ export default async function handler(req, res) {
           const daily = Number(item.daily_yield || item.daily_income || matched.daily_income || 0);
           const days = Number(item.duration_days || item.period_days || matched.duration_days || 30);
           const totalRev = Number(item.total_revenue || (daily * days));
+
+          const createdMs = item.created_at ? new Date(item.created_at).getTime() : now;
+          let lastDropMs = item.last_drop_time ? new Date(item.last_drop_time).getTime() : createdMs;
+
+          // Check for overdue 24-hr cycles
+          const intervalMs = 24 * 60 * 60 * 1000;
+          const cyclesDue = Math.floor((now - lastDropMs) / intervalMs);
+
+          if (cyclesDue > 0 && daily > 0) {
+            const addedIncome = cyclesDue * daily;
+            totalPendingIncomeToCredit += addedIncome;
+            lastDropMs = lastDropMs + (cyclesDue * intervalMs);
+
+            // Update product record asynchronously
+            sql`
+              UPDATE ${sql(tableName)}
+              SET last_drop_time = ${new Date(lastDropMs).toISOString()},
+                  next_drop_time = ${new Date(lastDropMs + intervalMs).toISOString()}
+              WHERE id = ${item.id}
+            `.catch(() => {});
+          }
+
+          const nextDropTime = new Date(lastDropMs + intervalMs).toISOString();
+
+          // Calculate total dropped so far
+          const daysElapsed = Math.min(days, Math.max(0, Math.floor((now - createdMs) / intervalMs)));
+          const droppedIncome = daysElapsed * daily;
+          const remainingIncome = Math.max(0, totalRev - droppedIncome);
 
           return {
             id: item.id,
@@ -166,32 +184,60 @@ export default async function handler(req, res) {
             duration_days: days,
             period_days: days,
             total_revenue: totalRev,
+            dropped_income: droppedIncome,
+            remaining_income: remainingIncome,
             status: (item.status || 'Active').charAt(0).toUpperCase() + (item.status || 'Active').slice(1).toLowerCase(),
             created_at: item.created_at || new Date().toISOString(),
-            next_drop_time: item.next_drop_time || new Date(Date.now() + 86400000).toISOString()
+            last_drop_time: new Date(lastDropMs).toISOString(),
+            next_drop_time: nextDropTime
           };
         });
+
+        // Credit withdrawable balance if income drops were due
+        let currentWithdrawable = getWithdrawBal(rawUser);
+        if (totalPendingIncomeToCredit > 0) {
+          currentWithdrawable += totalPendingIncomeToCredit;
+          try {
+            await sql`
+              UPDATE users 
+              SET withdrawable_balance = COALESCE(withdrawable_balance, 0) + ${totalPendingIncomeToCredit}
+              WHERE id = ${sessionUserId}
+            `;
+          } catch (errBal) {
+            try {
+              await sql`
+                UPDATE users 
+                SET income_balance = COALESCE(income_balance, 0) + ${totalPendingIncomeToCredit}
+                WHERE id = ${sessionUserId}
+              `;
+            } catch (errBal2) {}
+          }
+        }
+
+        user = {
+          id: rawUser.id,
+          phone: rawUser.phone || rawUser.phone_number || '',
+          phone_number: rawUser.phone || rawUser.phone_number || '',
+          referral_code: rawUser.referral_code || ('NV' + rawUser.id),
+          deposit_balance: getDepositBal(rawUser),
+          balance: getDepositBal(rawUser),
+          withdrawable_balance: currentWithdrawable,
+          withdrawal_balance: currentWithdrawable,
+          income_balance: currentWithdrawable,
+          total_deposited: Number(rawUser.total_deposited || 0),
+          total_withdrawn: Number(rawUser.total_withdrawn || 0),
+          created_at: rawUser.created_at
+        };
       }
     }
 
-    // Deliver all expected root and nested keys simultaneously
     return res.status(200).json({
       success: true,
-      data: {
-        user,
-        products,
-        equipment: products,
-        myProducts: myEquipment,
-        userEquipment: myEquipment,
-        purchases: myEquipment,
-        settings
-      },
+      data: { user, products, equipment: products, myProducts: myEquipment, settings },
       user,
       products,
       equipment: products,
-      catalog: products,
       myProducts: myEquipment,
-      userEquipment: myEquipment,
       purchases: myEquipment,
       settings
     });
@@ -201,9 +247,7 @@ export default async function handler(req, res) {
       success: false,
       error: error.message,
       products: [],
-      equipment: [],
-      myProducts: [],
-      purchases: []
+      myProducts: []
     });
   }
 }
