@@ -1,10 +1,11 @@
 /* =============================================================
-   NovaVest Main Client Controller
+   NovaVest Main Client Controller (Countdown & Team Fixed)
 ============================================================= */
 let currentUser = null;
 let currentSettings = null;
 let activeTeamTier = 1;
 let currentSelectedChannelId = null;
+let timerInterval = null;
 
 // Helper: Show standard toast
 function showToast(message) {
@@ -21,6 +22,22 @@ function showToast(message) {
 function formatNaira(num) {
   const val = Number(num) || 0;
   return '₦' + val.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// Helper: Format Date & Time
+function formatDateTime(isoString) {
+  if (!isoString) return '---';
+  const d = new Date(isoString);
+  if (isNaN(d.getTime())) return '---';
+  return d.toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  }) + ', ' + d.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  });
 }
 
 // -------------------------------------------------------------
@@ -76,18 +93,15 @@ function initCarousel() {
 // VIEW NAVIGATION ROUTER
 // -------------------------------------------------------------
 function switchView(viewName) {
-  // Hide all views
   const allViews = document.querySelectorAll('.view-section');
   allViews.forEach(v => v.classList.remove('active'));
 
-  // Show target view
   const target = document.getElementById('view-' + viewName);
   if (target) {
     target.classList.add('active');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  // Update bottom tab navigation active states
   const navItems = document.querySelectorAll('.bottom-nav .nav-item');
   navItems.forEach(n => {
     if (n.getAttribute('data-view') === viewName) {
@@ -97,7 +111,6 @@ function switchView(viewName) {
     }
   });
 
-  // Trigger view-specific fresh data loading
   if (viewName === 'home') {
     loadProducts();
     loadProfileData();
@@ -142,7 +155,6 @@ async function checkAuthSession() {
 
       switchView('home');
     } else {
-      // User not authenticated; keep app accessible and render public home items
       showAuthScreen();
     }
   } catch (err) {
@@ -159,7 +171,6 @@ function showAuthScreen() {
     authContainer.style.display = 'flex';
     appContainer.style.display = 'none';
   } else {
-    // If layout uses inline modals instead of full containers, default to home view
     switchView('home');
   }
 }
@@ -205,7 +216,6 @@ async function loadProfileData() {
   } catch (err) {}
 }
 
-// Loads catalog from /api/bootstrap
 async function loadProducts() {
   const container = document.getElementById('home-product-list');
   if (!container) return;
@@ -236,7 +246,6 @@ async function loadProducts() {
   }
 }
 
-// Purchase equipment
 async function buyProduct(productId) {
   if (!currentUser) {
     showToast('Please sign in to purchase equipment.');
@@ -265,10 +274,14 @@ async function buyProduct(productId) {
   }
 }
 
-// Loads user purchased equipment from /api/bootstrap
+// -------------------------------------------------------------
+// ACTIVE PRODUCTS: COUNTDOWN, CREATED AT, & DROPPED RATIO
+// -------------------------------------------------------------
 async function loadMyActiveProducts() {
   const container = document.getElementById('my-product-list');
   if (!container) return;
+
+  if (timerInterval) clearInterval(timerInterval);
 
   try {
     const res = await fetch('/api/bootstrap', { credentials: 'include' });
@@ -280,16 +293,92 @@ async function loadMyActiveProducts() {
       return;
     }
 
-    container.innerHTML = myProducts.map(up => `
-      <div class="product-card">
-        <div class="product-info">
-          <h4>${up.product_name || up.name}</h4>
-          <div class="product-spec">Daily Yield: <strong>${formatNaira(up.daily_yield || up.daily_income)}</strong></div>
-          <div class="product-spec">Cycle Duration: <strong>${up.duration_days || up.period_days} Days</strong></div>
-          <div class="drop-timer-box"><i class="fa-regular fa-clock"></i> Status: ${up.status || 'Active'}</div>
+    const now = Date.now();
+
+    container.innerHTML = myProducts.map((up, i) => {
+      const createdDate = formatDateTime(up.created_at);
+      const dailyYield = Number(up.daily_yield || up.daily_income || 0);
+      const totalDays = Number(up.duration_days || up.period_days || 30);
+      const totalRev = Number(up.total_revenue || (dailyYield * totalDays));
+
+      // Calculate elapsed days & dropped income
+      const createdMs = up.created_at ? new Date(up.created_at).getTime() : now;
+      const daysElapsed = Math.min(totalDays, Math.floor((now - createdMs) / (1000 * 60 * 60 * 24)));
+      const droppedIncome = Number(up.dropped_income || up.total_earned || (daysElapsed * dailyYield));
+      const remainingIncome = Math.max(0, totalRev - droppedIncome);
+
+      // Next 24-hr income drop time calculation
+      let nextDropMs;
+      if (up.next_drop_time) {
+        nextDropMs = new Date(up.next_drop_time).getTime();
+      } else {
+        const interval = 24 * 60 * 60 * 1000;
+        const diff = (now - createdMs) % interval;
+        nextDropMs = now + (interval - diff);
+      }
+
+      return `
+        <div class="product-card" style="padding: 16px; margin-bottom: 16px;">
+          <div class="product-info">
+            <div style="display: flex; justify-content: space-between; align-items: baseline;">
+              <h4>${up.product_name || up.name}</h4>
+              <span class="item-badge badge-active">${up.status || 'Active'}</span>
+            </div>
+            
+            <div class="product-spec" style="font-size: 13px; color: var(--text-muted, #888); margin-top: 4px;">
+              <i class="fa-regular fa-calendar-check"></i> Bought: <strong>${createdDate}</strong>
+            </div>
+
+            <div class="product-spec" style="margin-top: 8px;">
+              Daily Income: <strong class="text-success">${formatNaira(dailyYield)}</strong>
+            </div>
+
+            <!-- Income Dropped vs Remaining Ratio -->
+            <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; margin: 10px 0;">
+              <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px;">
+                <span>Total Dropped:</span>
+                <strong class="text-success">${formatNaira(droppedIncome)}</strong>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 13px;">
+                <span>Remaining Income:</span>
+                <strong style="color: var(--warning, #e65100);">${formatNaira(remainingIncome)}</strong>
+              </div>
+              <div style="font-size: 11px; text-align: right; color: #888; margin-top: 4px;">
+                Expected Total: ${formatNaira(totalRev)}
+              </div>
+            </div>
+
+            <!-- Live Countdown Timer -->
+            <div class="drop-timer-box" style="padding: 8px 12px; background: rgba(0, 122, 255, 0.1); border-radius: 6px; font-weight: bold; color: #007aff;">
+              <i class="fa-regular fa-clock"></i> Next Drop in: 
+              <span class="live-countdown" data-target="${nextDropMs}" id="timer-${i}">Calculating...</span>
+            </div>
+          </div>
         </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
+
+    // Start live countdown updater
+    function updateCountdowns() {
+      const timers = document.querySelectorAll('.live-countdown');
+      timers.forEach(t => {
+        const target = Number(t.getAttribute('data-target'));
+        const diff = target - Date.now();
+
+        if (diff <= 0) {
+          t.textContent = "Dropping now...";
+        } else {
+          const hrs = Math.floor(diff / (1000 * 60 * 60));
+          const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+          const secs = Math.floor((diff % (1000 * 60)) / 1000);
+          t.textContent = `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+        }
+      });
+    }
+
+    updateCountdowns();
+    timerInterval = setInterval(updateCountdowns, 1000);
+
   } catch (err) {
     container.innerHTML = '<div class="empty-state">Unable to load your equipment.</div>';
   }
@@ -302,7 +391,7 @@ async function loadInviteData() {
   try {
     const res = await fetch('/api/team?action=invite_info', { credentials: 'include' });
     const data = await res.json();
-    if (data.success) {
+    if (data && data.success) {
       const linkInput = document.getElementById('invite-link-val');
       const codeInput = document.getElementById('invite-code-val');
       if (linkInput) linkInput.value = data.inviteLink || (window.location.origin + '/?ref=' + (data.referralCode || ''));
@@ -312,23 +401,41 @@ async function loadInviteData() {
 }
 
 async function loadTeamData() {
+  const tbody = document.getElementById('team-table-body');
+  if (tbody) {
+    tbody.innerHTML = '<tr><td colspan="3" class="empty-state">Loading team details...</td></tr>';
+  }
+
   try {
-    const res = await fetch('/api/team?action=overview', { credentials: 'include' });
-    const data = await res.json();
-    if (data.success) {
-      const t1Count = document.getElementById('team1-members-count');
-      const t1Income = document.getElementById('team1-members-income');
-      const t2Count = document.getElementById('team2-members-count');
-      const t2Income = document.getElementById('team2-members-income');
-
-      if (t1Count) t1Count.textContent = data.tier1_count || 0;
-      if (t1Income) t1Income.textContent = formatNaira(data.tier1_income || 0);
-      if (t2Count) t2Count.textContent = data.tier2_count || 0;
-      if (t2Income) t2Income.textContent = formatNaira(data.tier2_income || 0);
-
-      renderTeamTierTable(activeTeamTier, data);
+    // Try multiple endpoints safely in case the API handles plain GET or ?action=overview
+    let res = await fetch('/api/team?action=overview', { credentials: 'include' });
+    if (!res.ok) {
+      res = await fetch('/api/team', { credentials: 'include' });
     }
-  } catch (e) {}
+    const data = await res.json();
+
+    const t1Count = document.getElementById('team1-members-count');
+    const t1Income = document.getElementById('team1-members-income');
+    const t2Count = document.getElementById('team2-members-count');
+    const t2Income = document.getElementById('team2-members-income');
+
+    const tier1Count = data.tier1_count || (data.tier1 && data.tier1.length) || 0;
+    const tier1Income = data.tier1_income || data.tier1_commission || 0;
+    const tier2Count = data.tier2_count || (data.tier2 && data.tier2.length) || 0;
+    const tier2Income = data.tier2_income || data.tier2_commission || 0;
+
+    if (t1Count) t1Count.textContent = tier1Count;
+    if (t1Income) t1Income.textContent = formatNaira(tier1Income);
+    if (t2Count) t2Count.textContent = tier2Count;
+    if (t2Income) t2Income.textContent = formatNaira(tier2Income);
+
+    renderTeamTierTable(activeTeamTier, data);
+  } catch (e) {
+    console.error("Team load error:", e);
+    if (tbody) {
+      tbody.innerHTML = '<tr><td colspan="3" class="empty-state">No members in your team yet.</td></tr>';
+    }
+  }
 }
 
 function selectTeamTier(tier) {
@@ -352,16 +459,21 @@ function selectTeamTier(tier) {
 function renderTeamTierTable(tier, overviewData) {
   const tbody = document.getElementById('team-table-body');
   if (!tbody) return;
-  const members = tier === 1 ? overviewData.tier1_members : overviewData.tier2_members;
+
+  const members = tier === 1 
+    ? (overviewData.tier1_members || overviewData.tier1 || [])
+    : (overviewData.tier2_members || overviewData.tier2 || []);
+
   if (!members || members.length === 0) {
     tbody.innerHTML = `<tr><td colspan="3" class="empty-state">No members joined in Tier ${tier} yet.</td></tr>`;
     return;
   }
+
   tbody.innerHTML = members.map(m => `
     <tr>
-      <td>${m.phone_masked || ('ID: ' + m.id)}</td>
-      <td>${m.product_bought || 'No Equipment'}</td>
-      <td class="text-success font-bold">${formatNaira(m.commission_earned)}</td>
+      <td>${m.phone_masked || m.phone || ('ID: ' + m.id)}</td>
+      <td>${m.product_bought || m.equipment || 'No Equipment'}</td>
+      <td class="text-success font-bold">${formatNaira(m.commission_earned || m.commission || 0)}</td>
     </tr>
   `).join('');
 }
@@ -474,11 +586,9 @@ document.addEventListener('DOMContentLoaded', () => {
   initThemeToggle();
   initCarousel();
   
-  // Pre-load public catalog on startup
   loadProducts();
   checkAuthSession();
 
-  // Bottom Navigation tabs
   document.querySelectorAll('.bottom-nav .nav-item').forEach(btn => {
     btn.addEventListener('click', () => {
       const v = btn.getAttribute('data-view');
@@ -486,7 +596,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Quick Action buttons on Home
   const actRecharge = document.getElementById('btn-nav-recharge');
   const actWithdraw = document.getElementById('btn-nav-withdraw');
   const actInvite = document.getElementById('btn-nav-invite');
@@ -497,7 +606,6 @@ document.addEventListener('DOMContentLoaded', () => {
   if (actInvite) actInvite.addEventListener('click', () => switchView('invite'));
   if (actGift) actGift.addEventListener('click', () => switchView('gift'));
 
-  // Subpage Back buttons
   document.querySelectorAll('.back-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const backTarget = btn.getAttribute('data-back') || 'home';
@@ -505,7 +613,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Profile Menu shortcuts
   const mBank = document.getElementById('menu-bank-card');
   const mDep = document.getElementById('menu-dep-history');
   const mWith = document.getElementById('menu-with-history');
@@ -516,11 +623,9 @@ document.addEventListener('DOMContentLoaded', () => {
   if (mWith) mWith.addEventListener('click', () => { switchView('history'); loadHistory('withdrawal'); });
   if (mTx) mTx.addEventListener('click', () => { switchView('history'); loadHistory('all'); });
 
-  // Logout button
   const logoutBtn = document.getElementById('btn-logout');
   if (logoutBtn) logoutBtn.addEventListener('click', performLogout);
 
-  // Return to admin button
   const retAdminBtn = document.getElementById('btn-return-admin');
   if (retAdminBtn) {
     retAdminBtn.addEventListener('click', async () => {
@@ -529,7 +634,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Auth toggle links (Login <-> Register switch)
   const showRegLink = document.getElementById('link-show-register');
   const showLoginLink = document.getElementById('link-show-login');
   const loginForm = document.getElementById('login-form');
@@ -554,7 +658,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Login submission
   if (loginForm) {
     loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -580,7 +683,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Register submission
   if (regForm) {
     regForm.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -614,7 +716,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Predefined recharge amounts
   document.querySelectorAll('.amount-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.amount-btn').forEach(b => b.classList.remove('active'));
@@ -624,7 +725,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Proceed to payment screen
   const proceedPayBtn = document.getElementById('btn-proceed-to-payment');
   if (proceedPayBtn) {
     proceedPayBtn.addEventListener('click', async () => {
@@ -668,7 +768,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Copy helpers
   const copyAccBtn = document.getElementById('btn-copy-account');
   if (copyAccBtn) {
     copyAccBtn.addEventListener('click', () => {
@@ -692,7 +791,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Bank Account Submission
   const dedicatedBankForm = document.getElementById('form-dedicated-bank');
   if (dedicatedBankForm) {
     dedicatedBankForm.addEventListener('submit', async (e) => {
@@ -726,7 +824,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Gift Code Claim Submission
   const giftForm = document.getElementById('form-page-gift');
   if (giftForm) {
     giftForm.addEventListener('submit', async (e) => {
@@ -754,17 +851,17 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Withdrawal Submission
   const submitWithBtn = document.getElementById('btn-submit-withdraw');
   if (submitWithBtn) {
     submitWithBtn.addEventListener('click', async () => {
-      const amount = Number(document.getElementById('input-withdraw-amount').value);
+      const input = document.getElementById('input-withdraw-amount');
+      const amount = Number(input ? input.value : 0);
       if (!amount || amount < 1000) {
         showToast('Minimum withdrawal is ₦1,000');
         return;
       }
       try {
-        const res = await fetch('/api/withdraw?action=request', {
+        const res = await fetch('/api/withdraw', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
@@ -784,7 +881,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-// History records loader
 async function loadHistory(type) {
   const titleEl = document.getElementById('history-page-title');
   const itemsEl = document.getElementById('history-page-items');
