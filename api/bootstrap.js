@@ -51,7 +51,7 @@ export default async function handler(req, res) {
                           req.headers['x-user-id'] || 
                           req.headers['authorization']?.replace('Bearer ', '');
 
-    // 1. Fetch products
+    // 1. Fetch catalog products
     let rawProducts = [];
     try {
       rawProducts = await sql`SELECT * FROM products ORDER BY price ASC`;
@@ -94,7 +94,7 @@ export default async function handler(req, res) {
       };
     });
 
-    // 2. Fetch settings
+    // 2. Fetch platform settings
     const settings = {
       withdrawals_enabled: 'true',
       withdrawal_fee_percent: '10',
@@ -107,39 +107,51 @@ export default async function handler(req, res) {
       settingRows.forEach(r => { settings[r.key] = r.value; });
     } catch (e) {}
 
-    // 3. User & Automatic Yield Settlement Engine
+    // 3. Resilient User Fetch & Automatic Yield Settlement
     let user = null;
     let myEquipment = [];
 
-    if (sessionUserId) {
+    if (sessionUserId && sessionUserId !== 'undefined' && sessionUserId !== 'null') {
       let userRows = [];
+
+      // Query by ID (both text & integer)
       try {
         userRows = await sql`SELECT * FROM users WHERE id::text = ${String(sessionUserId)} LIMIT 1`;
-      } catch (eSql) {
+      } catch (e1) {
         try {
           userRows = await sql`SELECT * FROM users WHERE id = ${sessionUserId} LIMIT 1`;
-        } catch (eSql2) {
+        } catch (e2) {
+          userRows = [];
+        }
+      }
+
+      // Fallback: If not found by ID, query by phone if sessionUserId looks like a phone number
+      if ((!userRows || userRows.length === 0) && String(sessionUserId).length >= 10) {
+        try {
+          userRows = await sql`SELECT * FROM users WHERE phone = ${String(sessionUserId)} OR phone_number = ${String(sessionUserId)} LIMIT 1`;
+        } catch (e3) {
           userRows = [];
         }
       }
 
       let rawUser = userRows[0];
 
-      if (rawUser && !rawUser.is_banned) {
+      if (rawUser) {
+        // Safe Equipment Retrieval
         let rawPurchases = [];
         let tableName = 'user_products';
 
         try {
           rawPurchases = await sql`SELECT * FROM user_products WHERE user_id::text = ${String(rawUser.id)} ORDER BY id DESC`;
-        } catch (e1) {
+        } catch (eP1) {
           try {
             rawPurchases = await sql`SELECT * FROM user_investments WHERE user_id::text = ${String(rawUser.id)} ORDER BY id DESC`;
             tableName = 'user_investments';
-          } catch (e2) {
+          } catch (eP2) {
             try {
               rawPurchases = await sql`SELECT * FROM purchases WHERE user_id::text = ${String(rawUser.id)} ORDER BY id DESC`;
               tableName = 'purchases';
-            } catch (e3) {
+            } catch (eP3) {
               rawPurchases = [];
             }
           }
@@ -151,58 +163,64 @@ export default async function handler(req, res) {
         const prodMap = new Map();
         products.forEach(p => prodMap.set(String(p.id), p));
 
+        // Process Equipment with Per-Item Crash Guard
         myEquipment = (rawPurchases || []).map(item => {
-          const matched = prodMap.get(String(item.product_id)) || {};
-          const price = Number(item.price || item.amount_paid || matched.price || 0);
-          const daily = Number(item.daily_yield || item.daily_income || matched.daily_income || 0);
-          const days = Number(item.duration_days || item.period_days || matched.duration_days || 30);
-          const totalRev = Number(item.total_revenue || (daily * days));
+          try {
+            const matched = prodMap.get(String(item.product_id)) || {};
+            const price = Number(item.price || item.amount_paid || matched.price || 0);
+            const daily = Number(item.daily_yield || item.daily_income || matched.daily_income || 0);
+            const days = Number(item.duration_days || item.period_days || matched.duration_days || 30);
+            const totalRev = Number(item.total_revenue || (daily * days));
 
-          const createdMs = item.created_at ? new Date(item.created_at).getTime() : now;
-          let lastDropMs = item.last_drop_time ? new Date(item.last_drop_time).getTime() : createdMs;
+            const createdMs = item.created_at ? new Date(item.created_at).getTime() : now;
+            let lastDropMs = item.last_drop_time ? new Date(item.last_drop_time).getTime() : createdMs;
 
-          const intervalMs = 24 * 60 * 60 * 1000;
-          const cyclesDue = Math.floor((now - lastDropMs) / intervalMs);
+            const intervalMs = 24 * 60 * 60 * 1000;
+            const cyclesDue = Math.floor((now - lastDropMs) / intervalMs);
 
-          if (cyclesDue > 0 && daily > 0) {
-            const addedIncome = cyclesDue * daily;
-            totalPendingIncomeToCredit += addedIncome;
-            lastDropMs = lastDropMs + (cyclesDue * intervalMs);
+            if (cyclesDue > 0 && daily > 0) {
+              const addedIncome = cyclesDue * daily;
+              totalPendingIncomeToCredit += addedIncome;
+              lastDropMs = lastDropMs + (cyclesDue * intervalMs);
 
-            sql`
-              UPDATE ${sql(tableName)}
-              SET last_drop_time = ${new Date(lastDropMs).toISOString()},
-                  next_drop_time = ${new Date(lastDropMs + intervalMs).toISOString()}
-              WHERE id = ${item.id}
-            `.catch(() => {});
+              sql`
+                UPDATE ${sql(tableName)}
+                SET last_drop_time = ${new Date(lastDropMs).toISOString()},
+                    next_drop_time = ${new Date(lastDropMs + intervalMs).toISOString()}
+                WHERE id = ${item.id}
+              `.catch(() => {});
+            }
+
+            const nextDropTime = new Date(lastDropMs + intervalMs).toISOString();
+            const daysElapsed = Math.min(days, Math.max(0, Math.floor((now - createdMs) / intervalMs)));
+            const droppedIncome = daysElapsed * daily;
+            const remainingIncome = Math.max(0, totalRev - droppedIncome);
+
+            return {
+              id: item.id,
+              product_id: item.product_id,
+              name: item.name || matched.name || 'VIP Equipment',
+              product_name: item.name || matched.name || 'VIP Equipment',
+              price: price,
+              amount_paid: price,
+              daily_income: daily,
+              daily_yield: daily,
+              duration_days: days,
+              period_days: days,
+              total_revenue: totalRev,
+              dropped_income: droppedIncome,
+              remaining_income: remainingIncome,
+              status: (item.status || 'Active').charAt(0).toUpperCase() + (item.status || 'Active').slice(1).toLowerCase(),
+              created_at: item.created_at || new Date().toISOString(),
+              last_drop_time: new Date(lastDropMs).toISOString(),
+              next_drop_time: nextDropTime
+            };
+          } catch (itemErr) {
+            return null;
           }
+        }).filter(Boolean);
 
-          const nextDropTime = new Date(lastDropMs + intervalMs).toISOString();
-          const daysElapsed = Math.min(days, Math.max(0, Math.floor((now - createdMs) / intervalMs)));
-          const droppedIncome = daysElapsed * daily;
-          const remainingIncome = Math.max(0, totalRev - droppedIncome);
-
-          return {
-            id: item.id,
-            product_id: item.product_id,
-            name: item.name || matched.name || 'VIP Equipment',
-            product_name: item.name || matched.name || 'VIP Equipment',
-            price: price,
-            amount_paid: price,
-            daily_income: daily,
-            daily_yield: daily,
-            duration_days: days,
-            period_days: days,
-            total_revenue: totalRev,
-            dropped_income: droppedIncome,
-            remaining_income: remainingIncome,
-            status: (item.status || 'Active').charAt(0).toUpperCase() + (item.status || 'Active').slice(1).toLowerCase(),
-            created_at: item.created_at || new Date().toISOString(),
-            last_drop_time: new Date(lastDropMs).toISOString(),
-            next_drop_time: nextDropTime
-          };
-        });
-
+        // Credit withdrawable balance if income drops were due
         let currentWithdrawable = getWithdrawBal(rawUser);
         if (totalPendingIncomeToCredit > 0) {
           currentWithdrawable += totalPendingIncomeToCredit;
