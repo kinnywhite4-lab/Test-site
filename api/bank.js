@@ -18,7 +18,6 @@ function parseCookies(req) {
   return list;
 }
 
-// Built-in active bank payment channels in case database records are empty
 const DEFAULT_CHANNELS = [
   {
     id: '1',
@@ -50,14 +49,18 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   const cookies = parseCookies(req);
-  const userId = cookies['novavest_session'] || req.headers['x-user-id'] || req.query.user_id;
-  const sql = getDb();
+  const userId = cookies['novavest_session'] || 
+                 cookies['token'] || 
+                 req.query.user_id || 
+                 req.headers['x-user-id'] || 
+                 req.body?.user_id;
 
+  const sql = getDb();
   const url = new URL(req.url, `https://${req.headers.host || 'localhost'}`);
   const action = req.query?.action || url.searchParams.get('action');
 
   // =============================================================
-  // 1. DEPOSIT CHANNELS LIST (?action=deposit_channels)
+  // 1. DEPOSIT CHANNELS (?action=deposit_channels)
   // =============================================================
   if (action === 'deposit_channels') {
     try {
@@ -97,11 +100,7 @@ export default async function handler(req, res) {
         }))
       });
     } catch (err) {
-      console.error('Error fetching deposit channels:', err);
-      return res.status(200).json({
-        success: true,
-        channels: DEFAULT_CHANNELS
-      });
+      return res.status(200).json({ success: true, channels: DEFAULT_CHANNELS });
     }
   }
 
@@ -112,21 +111,12 @@ export default async function handler(req, res) {
     const channelId = req.query.id || url.searchParams.get('id');
     try {
       let channel = null;
-
       try {
-        const rows = await sql`
-          SELECT * FROM deposit_channels 
-          WHERE id::text = ${String(channelId)} 
-          LIMIT 1
-        `;
+        const rows = await sql`SELECT * FROM deposit_channels WHERE id::text = ${String(channelId)} LIMIT 1`;
         channel = rows[0];
       } catch (e1) {
         try {
-          const rows = await sql`
-            SELECT * FROM payment_channels 
-            WHERE id::text = ${String(channelId)} 
-            LIMIT 1
-          `;
+          const rows = await sql`SELECT * FROM payment_channels WHERE id::text = ${String(channelId)} LIMIT 1`;
           channel = rows[0];
         } catch (e2) {}
       }
@@ -143,12 +133,11 @@ export default async function handler(req, res) {
           bank_name: channel.bank_name || 'Bank Direct',
           account_name: channel.account_name || channel.account_holder || 'NovaVest Official',
           account_number: channel.account_number || '',
-          instructions: channel.instructions || 'Transfer the exact amount to the account details above and upload payment proof.'
+          instructions: channel.instructions || 'Transfer the exact amount and save receipt.'
         }
       });
     } catch (err) {
-      const fallback = DEFAULT_CHANNELS[0];
-      return res.status(200).json({ success: true, channel: fallback });
+      return res.status(200).json({ success: true, channel: DEFAULT_CHANNELS[0] });
     }
   }
 
@@ -175,11 +164,13 @@ export default async function handler(req, res) {
             WHERE user_id::text = ${String(userId)} 
             ORDER BY id DESC LIMIT 1
           `;
-        } catch (e2) {}
+        } catch (e2) {
+          banks = [];
+        }
       }
 
       const bank = banks[0];
-      if (bank) {
+      if (bank && bank.account_number) {
         return res.status(200).json({
           success: true,
           bank: {
@@ -200,29 +191,77 @@ export default async function handler(req, res) {
   // =============================================================
   if (action === 'save_user_bank' && req.method === 'POST') {
     if (!userId) {
-      return res.status(401).json({ success: false, message: 'Please log in.' });
+      return res.status(401).json({ success: false, message: 'Please log in first to save your bank.' });
     }
 
     const { bankName, accountNumber, accountHolder } = req.body || {};
+
     if (!bankName || !accountNumber || !accountHolder) {
-      return res.status(400).json({ success: false, message: 'All bank fields are required.' });
+      return res.status(400).json({ success: false, message: 'Please enter Bank Name, Account Number, and Account Name.' });
+    }
+
+    if (String(accountNumber).trim().length !== 10) {
+      return res.status(400).json({ success: false, message: 'NUBAN Account Number must be exactly 10 digits.' });
     }
 
     try {
+      // 1. Ensure table exists with text columns to prevent type errors
       try {
         await sql`
-          INSERT INTO user_banks (user_id, bank_name, account_number, account_holder, created_at)
-          VALUES (${String(userId)}, ${bankName}, ${accountNumber}, ${accountHolder}, NOW())
+          CREATE TABLE IF NOT EXISTS user_banks (
+            id SERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            bank_name TEXT NOT NULL,
+            account_number TEXT NOT NULL,
+            account_holder TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW()
+          )
         `;
-      } catch (e1) {
+      } catch (tErr) {}
+
+      // 2. Check if the user already has a saved bank
+      let existing = [];
+      try {
+        existing = await sql`SELECT id FROM user_banks WHERE user_id::text = ${String(userId)} LIMIT 1`;
+      } catch (eEx) {
+        existing = [];
+      }
+
+      if (existing && existing.length > 0) {
+        // Update existing record
         await sql`
-          INSERT INTO banks (user_id, bank_name, account_number, account_holder, created_at)
-          VALUES (${String(userId)}, ${bankName}, ${accountNumber}, ${accountHolder}, NOW())
+          UPDATE user_banks 
+          SET bank_name = ${bankName.trim()},
+              account_number = ${accountNumber.trim()},
+              account_holder = ${accountHolder.trim()},
+              created_at = NOW()
+          WHERE id = ${existing[0].id}
+        `;
+      } else {
+        // Insert new record
+        await sql`
+          INSERT INTO user_banks (user_id, bank_name, account_number, account_holder, created_at)
+          VALUES (
+            ${String(userId)}, 
+            ${bankName.trim()}, 
+            ${accountNumber.trim()}, 
+            ${accountHolder.trim()}, 
+            NOW()
+          )
         `;
       }
-      return res.status(200).json({ success: true, message: 'Bank details saved.' });
+
+      return res.status(200).json({
+        success: true,
+        message: 'Bank details saved successfully!'
+      });
+
     } catch (err) {
-      return res.status(500).json({ success: false, message: 'Failed to save bank.' });
+      console.error('Error saving bank details:', err);
+      return res.status(500).json({
+        success: false,
+        message: err.message || 'Database error saving bank details.'
+      });
     }
   }
 
