@@ -106,10 +106,10 @@ export default async function handler(req, res) {
     if (sessionUserId && sessionUserId !== 'undefined' && sessionUserId !== 'null') {
       let userRows = [];
       try {
-        userRows = await sql`SELECT * FROM users WHERE id::text = ${String(sessionUserId)} LIMIT 1`;
+        userRows = await sql`SELECT * FROM users WHERE id = ${sessionUserId} LIMIT 1`;
       } catch (e1) {
         try {
-          userRows = await sql`SELECT * FROM users WHERE id = ${sessionUserId} LIMIT 1`;
+          userRows = await sql`SELECT * FROM users WHERE id::text = ${String(sessionUserId)} LIMIT 1`;
         } catch (e2) {
           userRows = [];
         }
@@ -127,19 +127,42 @@ export default async function handler(req, res) {
 
       if (rawUser) {
         let rawPurchases = [];
-        let tableName = 'purchases';
+        let activeTable = 'purchases';
 
+        // Multi-table query: Safely checks all possible investment tables
         try {
-          rawPurchases = await sql`SELECT * FROM purchases WHERE user_id::text = ${String(rawUser.id)} ORDER BY id DESC`;
-        } catch (eP1) {
+          rawPurchases = await sql`SELECT * FROM purchases WHERE user_id = ${rawUser.id} ORDER BY id DESC`;
+        } catch (errP1) {
           try {
-            rawPurchases = await sql`SELECT * FROM user_products WHERE user_id::text = ${String(rawUser.id)} ORDER BY id DESC`;
-            tableName = 'user_products';
-          } catch (eP2) {
+            rawPurchases = await sql`SELECT * FROM purchases WHERE user_id::text = ${String(rawUser.id)} ORDER BY id DESC`;
+          } catch (errP2) {
+            rawPurchases = [];
+          }
+        }
+
+        if (!rawPurchases || rawPurchases.length === 0) {
+          try {
+            rawPurchases = await sql`SELECT * FROM user_products WHERE user_id = ${rawUser.id} ORDER BY id DESC`;
+            activeTable = 'user_products';
+          } catch (errU1) {
+            try {
+              rawPurchases = await sql`SELECT * FROM user_products WHERE user_id::text = ${String(rawUser.id)} ORDER BY id DESC`;
+              activeTable = 'user_products';
+            } catch (errU2) {
+              rawPurchases = [];
+            }
+          }
+        }
+
+        if (!rawPurchases || rawPurchases.length === 0) {
+          try {
+            rawPurchases = await sql`SELECT * FROM user_investments WHERE user_id = ${rawUser.id} ORDER BY id DESC`;
+            activeTable = 'user_investments';
+          } catch (errI1) {
             try {
               rawPurchases = await sql`SELECT * FROM user_investments WHERE user_id::text = ${String(rawUser.id)} ORDER BY id DESC`;
-              tableName = 'user_investments';
-            } catch (eP3) {
+              activeTable = 'user_investments';
+            } catch (errI2) {
               rawPurchases = [];
             }
           }
@@ -149,7 +172,7 @@ export default async function handler(req, res) {
         const prodMap = new Map();
         products.forEach(p => prodMap.set(String(p.id), p));
 
-        for (const item of rawPurchases) {
+        for (const item of (rawPurchases || [])) {
           try {
             const matched = prodMap.get(String(item.product_id)) || {};
             const price = Number(item.price || item.amount || item.purchase_amount || item.amount_paid || matched.price || 0);
@@ -159,54 +182,66 @@ export default async function handler(req, res) {
 
             const createdMs = item.created_at ? new Date(item.created_at).getTime() : now;
             
-            // If next_drop_time is missing, initialize it to exactly 24 hours after creation
+            // Safe next_drop_time initialization
             let nextDropMs = item.next_drop_time 
               ? new Date(item.next_drop_time).getTime() 
               : (createdMs + (24 * 60 * 60 * 1000));
 
             let currentEarned = Number(item.total_earned || item.dropped_income || 0);
 
-            // STRICT CHECK: Only credit when the countdown has reached or passed 0
+            // ONLY credit when the countdown has reached or passed 0
             if (now >= nextDropMs && daily > 0 && currentEarned < totalRev) {
               const updatedEarned = currentEarned + daily;
               const newNextDropIso = new Date(now + (24 * 60 * 60 * 1000)).toISOString();
               const nowIso = new Date(now).toISOString();
 
-              // 1. Lock the package next drop time into the database
-              if (tableName === 'purchases') {
+              // Update the specific table safely
+              try {
+                if (activeTable === 'purchases') {
+                  await sql`
+                    UPDATE purchases 
+                    SET next_drop_time = ${newNextDropIso},
+                        last_drop_time = ${nowIso},
+                        total_earned = ${updatedEarned}
+                    WHERE id = ${item.id}
+                  `;
+                } else if (activeTable === 'user_products') {
+                  await sql`
+                    UPDATE user_products 
+                    SET next_drop_time = ${newNextDropIso},
+                        last_drop_time = ${nowIso},
+                        total_earned = ${updatedEarned}
+                    WHERE id = ${item.id}
+                  `;
+                } else {
+                  await sql`
+                    UPDATE user_investments 
+                    SET next_drop_time = ${newNextDropIso},
+                        last_drop_time = ${nowIso},
+                        total_earned = ${updatedEarned}
+                    WHERE id = ${item.id}
+                  `;
+                }
+              } catch (upErr) {}
+
+              // Add the daily yield to the user's withdrawable balance
+              try {
                 await sql`
-                  UPDATE purchases 
-                  SET next_drop_time = ${newNextDropIso},
-                      last_drop_time = ${nowIso},
-                      total_earned = ${updatedEarned}
-                  WHERE id = ${item.id}
+                  UPDATE users 
+                  SET withdrawable_balance = COALESCE(withdrawable_balance, 0) + ${daily}
+                  WHERE id = ${rawUser.id}
                 `;
-              } else if (tableName === 'user_products') {
-                await sql`
-                  UPDATE user_products 
-                  SET next_drop_time = ${newNextDropIso},
-                      last_drop_time = ${nowIso},
-                      total_earned = ${updatedEarned}
-                  WHERE id = ${item.id}
-                `;
-              } else {
-                await sql`
-                  UPDATE user_investments 
-                  SET next_drop_time = ${newNextDropIso},
-                      last_drop_time = ${nowIso},
-                      total_earned = ${updatedEarned}
-                  WHERE id = ${item.id}
-                `;
+              } catch (eU) {
+                try {
+                  await sql`
+                    UPDATE users 
+                    SET withdrawable_balance = COALESCE(withdrawable_balance, 0) + ${daily}
+                    WHERE id::text = ${String(rawUser.id)}
+                  `;
+                } catch (eU2) {}
               }
 
-              // 2. Add the daily yield to the user's withdrawable balance
-              await sql`
-                UPDATE users 
-                SET withdrawable_balance = COALESCE(withdrawable_balance, 0) + ${daily}
-                WHERE id::text = ${String(rawUser.id)}
-              `;
-
-              // 3. Register on Transaction History table
+              // Register on Transaction History
               try {
                 await sql`
                   INSERT INTO transactions (user_id, title, type, amount, direction, status, created_at)
@@ -221,7 +256,6 @@ export default async function handler(req, res) {
                   )
                 `;
               } catch (txErr) {
-                // Support alternate transactions table schemas
                 try {
                   await sql`
                     INSERT INTO user_transactions (user_id, type, amount, status, created_at)
@@ -230,7 +264,6 @@ export default async function handler(req, res) {
                 } catch (txErr2) {}
               }
 
-              // Update in-memory state for this response
               currentEarned = updatedEarned;
               nextDropMs = now + (24 * 60 * 60 * 1000);
               rawUser.withdrawable_balance = Number(rawUser.withdrawable_balance || 0) + daily;
@@ -256,8 +289,8 @@ export default async function handler(req, res) {
               created_at: item.created_at || new Date().toISOString(),
               next_drop_time: new Date(nextDropMs).toISOString()
             });
-          } catch (errItem) {
-            console.error("Item calculation guard:", errItem);
+          } catch (itemErr) {
+            console.error("Item processing error:", itemErr);
           }
         }
 
