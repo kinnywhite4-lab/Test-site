@@ -94,27 +94,18 @@ export default async function handler(req, res) {
       };
     });
 
-    // 2. Fetch platform settings
     const settings = {
       withdrawals_enabled: 'true',
       withdrawal_fee_percent: '10',
-      min_withdrawal: '1000',
-      telegram_group: 'https://t.me/novavest_group',
-      telegram_channel: 'https://t.me/novavest_channel'
+      min_withdrawal: '1000'
     };
-    try {
-      const settingRows = await sql`SELECT key, value FROM settings`;
-      settingRows.forEach(r => { settings[r.key] = r.value; });
-    } catch (e) {}
 
-    // 3. Resilient User Fetch & Automatic Yield Settlement
+    // 2. User & Synchronous Yield Settlement
     let user = null;
     let myEquipment = [];
 
     if (sessionUserId && sessionUserId !== 'undefined' && sessionUserId !== 'null') {
       let userRows = [];
-
-      // Query by ID (both text & integer)
       try {
         userRows = await sql`SELECT * FROM users WHERE id::text = ${String(sessionUserId)} LIMIT 1`;
       } catch (e1) {
@@ -125,7 +116,6 @@ export default async function handler(req, res) {
         }
       }
 
-      // Fallback: If not found by ID, query by phone if sessionUserId looks like a phone number
       if ((!userRows || userRows.length === 0) && String(sessionUserId).length >= 10) {
         try {
           userRows = await sql`SELECT * FROM users WHERE phone = ${String(sessionUserId)} OR phone_number = ${String(sessionUserId)} LIMIT 1`;
@@ -137,20 +127,19 @@ export default async function handler(req, res) {
       let rawUser = userRows[0];
 
       if (rawUser) {
-        // Safe Equipment Retrieval
         let rawPurchases = [];
-        let tableName = 'user_products';
+        let tableName = 'purchases';
 
         try {
-          rawPurchases = await sql`SELECT * FROM user_products WHERE user_id::text = ${String(rawUser.id)} ORDER BY id DESC`;
+          rawPurchases = await sql`SELECT * FROM purchases WHERE user_id::text = ${String(rawUser.id)} ORDER BY id DESC`;
         } catch (eP1) {
           try {
-            rawPurchases = await sql`SELECT * FROM user_investments WHERE user_id::text = ${String(rawUser.id)} ORDER BY id DESC`;
-            tableName = 'user_investments';
+            rawPurchases = await sql`SELECT * FROM user_products WHERE user_id::text = ${String(rawUser.id)} ORDER BY id DESC`;
+            tableName = 'user_products';
           } catch (eP2) {
             try {
-              rawPurchases = await sql`SELECT * FROM purchases WHERE user_id::text = ${String(rawUser.id)} ORDER BY id DESC`;
-              tableName = 'purchases';
+              rawPurchases = await sql`SELECT * FROM user_investments WHERE user_id::text = ${String(rawUser.id)} ORDER BY id DESC`;
+              tableName = 'user_investments';
             } catch (eP3) {
               rawPurchases = [];
             }
@@ -158,49 +147,76 @@ export default async function handler(req, res) {
         }
 
         const now = Date.now();
-        let totalPendingIncomeToCredit = 0;
-
+        let totalIncomeToAddNow = 0;
         const prodMap = new Map();
         products.forEach(p => prodMap.set(String(p.id), p));
 
-        // Process Equipment with Per-Item Crash Guard
-        myEquipment = (rawPurchases || []).map(item => {
+        for (const item of rawPurchases) {
           try {
             const matched = prodMap.get(String(item.product_id)) || {};
-            const price = Number(item.price || item.amount_paid || matched.price || 0);
-            const daily = Number(item.daily_yield || item.daily_income || matched.daily_income || 0);
+            const price = Number(item.price || item.amount || item.purchase_amount || item.amount_paid || matched.price || 0);
+            const daily = Number(item.daily_yield || item.daily_income || matched.daily_income || matched.daily_yield || 0);
             const days = Number(item.duration_days || item.period_days || matched.duration_days || 30);
             const totalRev = Number(item.total_revenue || (daily * days));
 
             const createdMs = item.created_at ? new Date(item.created_at).getTime() : now;
             let lastDropMs = item.last_drop_time ? new Date(item.last_drop_time).getTime() : createdMs;
 
-            const intervalMs = 24 * 60 * 60 * 1000;
+            const intervalMs = 24 * 60 * 60 * 1000; // 24 Hours in ms
             const cyclesDue = Math.floor((now - lastDropMs) / intervalMs);
 
-            if (cyclesDue > 0 && daily > 0) {
-              const addedIncome = cyclesDue * daily;
-              totalPendingIncomeToCredit += addedIncome;
-              lastDropMs = lastDropMs + (cyclesDue * intervalMs);
+            let newDropped = Number(item.total_earned || item.dropped_income || 0);
 
-              sql`
-                UPDATE ${sql(tableName)}
-                SET last_drop_time = ${new Date(lastDropMs).toISOString()},
-                    next_drop_time = ${new Date(lastDropMs + intervalMs).toISOString()}
-                WHERE id = ${item.id}
-              `.catch(() => {});
+            // ONLY credit if a full 24-hr countdown has completed
+            if (cyclesDue > 0 && daily > 0) {
+              const incomeGained = cyclesDue * daily;
+              totalIncomeToAddNow += incomeGained;
+              newDropped += incomeGained;
+
+              lastDropMs = lastDropMs + (cyclesDue * intervalMs);
+              const nextDropTimeIso = new Date(lastDropMs + intervalMs).toISOString();
+              const lastDropTimeIso = new Date(lastDropMs).toISOString();
+
+              // CRITICAL: Await the database write so it does not repeat on next refresh!
+              try {
+                if (tableName === 'purchases') {
+                  await sql`
+                    UPDATE purchases 
+                    SET last_drop_time = ${lastDropTimeIso},
+                        next_drop_time = ${nextDropTimeIso},
+                        total_earned = ${newDropped}
+                    WHERE id = ${item.id}
+                  `;
+                } else if (tableName === 'user_products') {
+                  await sql`
+                    UPDATE user_products 
+                    SET last_drop_time = ${lastDropTimeIso},
+                        next_drop_time = ${nextDropTimeIso},
+                        total_earned = ${newDropped}
+                    WHERE id = ${item.id}
+                  `;
+                } else {
+                  await sql`
+                    UPDATE user_investments 
+                    SET last_drop_time = ${lastDropTimeIso},
+                        next_drop_time = ${nextDropTimeIso},
+                        total_earned = ${newDropped}
+                    WHERE id = ${item.id}
+                  `;
+                }
+              } catch (updateErr) {
+                console.error("Failed to commit drop timestamp:", updateErr);
+              }
             }
 
             const nextDropTime = new Date(lastDropMs + intervalMs).toISOString();
-            const daysElapsed = Math.min(days, Math.max(0, Math.floor((now - createdMs) / intervalMs)));
-            const droppedIncome = daysElapsed * daily;
-            const remainingIncome = Math.max(0, totalRev - droppedIncome);
+            const remainingIncome = Math.max(0, totalRev - newDropped);
 
-            return {
+            myEquipment.push({
               id: item.id,
               product_id: item.product_id,
-              name: item.name || matched.name || 'VIP Equipment',
-              product_name: item.name || matched.name || 'VIP Equipment',
+              name: item.name || item.product_name || matched.name || 'VIP Equipment',
+              product_name: item.name || item.product_name || matched.name || 'VIP Equipment',
               price: price,
               amount_paid: price,
               daily_income: daily,
@@ -208,33 +224,33 @@ export default async function handler(req, res) {
               duration_days: days,
               period_days: days,
               total_revenue: totalRev,
-              dropped_income: droppedIncome,
+              dropped_income: newDropped,
               remaining_income: remainingIncome,
               status: (item.status || 'Active').charAt(0).toUpperCase() + (item.status || 'Active').slice(1).toLowerCase(),
               created_at: item.created_at || new Date().toISOString(),
               last_drop_time: new Date(lastDropMs).toISOString(),
               next_drop_time: nextDropTime
-            };
-          } catch (itemErr) {
-            return null;
+            });
+          } catch (errItem) {
+            console.error("Error processing item:", errItem);
           }
-        }).filter(Boolean);
+        }
 
-        // Credit withdrawable balance if income drops were due
+        // Apply completed payout to withdrawable balance in the database
         let currentWithdrawable = getWithdrawBal(rawUser);
-        if (totalPendingIncomeToCredit > 0) {
-          currentWithdrawable += totalPendingIncomeToCredit;
+        if (totalIncomeToAddNow > 0) {
+          currentWithdrawable += totalIncomeToAddNow;
           try {
             await sql`
               UPDATE users 
-              SET withdrawable_balance = COALESCE(withdrawable_balance, 0) + ${totalPendingIncomeToCredit}
+              SET withdrawable_balance = COALESCE(withdrawable_balance, 0) + ${totalIncomeToAddNow}
               WHERE id::text = ${String(rawUser.id)}
             `;
           } catch (errBal) {
             try {
               await sql`
                 UPDATE users 
-                SET income_balance = COALESCE(income_balance, 0) + ${totalPendingIncomeToCredit}
+                SET income_balance = COALESCE(income_balance, 0) + ${totalIncomeToAddNow}
                 WHERE id::text = ${String(rawUser.id)}
               `;
             } catch (errBal2) {}
@@ -260,10 +276,9 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       success: true,
-      data: { user, products, equipment: products, myProducts: myEquipment, settings },
+      data: { user, products, myProducts: myEquipment, settings },
       user,
       products,
-      equipment: products,
       myProducts: myEquipment,
       purchases: myEquipment,
       settings
