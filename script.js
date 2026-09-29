@@ -312,7 +312,7 @@ async function buyProduct(productId) {
 }
 
 // -------------------------------------------------------------
-// ACTIVE PRODUCTS: COUNTDOWN, CREATED AT, & CLAIM ACTION
+// ACTIVE PRODUCTS: 24-HOUR ROLLING COUNTDOWN FROM PURCHASE TIME
 // -------------------------------------------------------------
 async function loadMyActiveProducts() {
   const container = document.getElementById('my-product-list') || 
@@ -321,7 +321,10 @@ async function loadMyActiveProducts() {
 
   if (!container) return;
 
-  if (timerInterval) clearInterval(timerInterval);
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
 
   try {
     const savedUserId = localStorage.getItem('novavest_session') || '';
@@ -337,6 +340,7 @@ async function loadMyActiveProducts() {
     }
 
     const now = Date.now();
+    const DAY_MS = 24 * 60 * 60 * 1000;
 
     container.innerHTML = myProducts.map((up, i) => {
       const createdDate = formatDateTime(up.created_at);
@@ -347,7 +351,12 @@ async function loadMyActiveProducts() {
       const droppedIncome = Number(up.dropped_income !== undefined ? up.dropped_income : 0);
       const remainingIncome = Number(up.remaining_income !== undefined ? up.remaining_income : Math.max(0, totalRev - droppedIncome));
 
-      let nextDropMs = up.next_drop_time ? new Date(up.next_drop_time).getTime() : (now + 86400000);
+      // Calculate strictly from purchase time (created_at):
+      // Each cycle is 24 hours. The next drop is the end of the current 24-hour cycle.
+      const createdMs = up.created_at ? new Date(up.created_at).getTime() : now;
+      const elapsed = Math.max(0, now - createdMs);
+      const completedCycles = Math.floor(elapsed / DAY_MS);
+      const nextDropMs = createdMs + ((completedCycles + 1) * DAY_MS);
 
       return `
         <div class="product-card" style="padding: 16px; margin-bottom: 16px; border-radius: 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08);">
@@ -383,7 +392,7 @@ async function loadMyActiveProducts() {
             <!-- Live Countdown Timer -->
             <div class="drop-timer-box" style="padding: 10px 12px; background: rgba(0, 122, 255, 0.12); border-radius: 6px; font-weight: bold; color: #29b6f6; display: flex; align-items: center; justify-content: space-between;">
               <span><i class="fa-regular fa-clock"></i> Next Income Drop:</span> 
-              <span class="live-countdown" data-purchase-id="${up.id}" data-target="${nextDropMs}" id="timer-${i}">00:00:00</span>
+              <span class="live-countdown" data-purchase-id="${up.id}" data-target="${nextDropMs}" id="timer-${i}">23:59:59</span>
             </div>
           </div>
         </div>
@@ -394,15 +403,17 @@ async function loadMyActiveProducts() {
 
     function updateCountdowns() {
       const timers = document.querySelectorAll('.live-countdown');
+      const currentTime = Date.now();
+
       timers.forEach(t => {
-        const target = Number(t.getAttribute('data-target'));
+        let target = Number(t.getAttribute('data-target'));
         const purchaseId = t.getAttribute('data-purchase-id');
-        const diff = target - Date.now();
+        let diff = target - currentTime;
 
+        // If the cycle completes, trigger claim and calculate the next 24-hr milestone
         if (diff <= 0) {
-          t.textContent = "Dropping income...";
+          t.textContent = "00:00:00";
 
-          // When countdown hits zero, trigger the claim via purchase.js ONCE
           if (!claimingMap[purchaseId]) {
             claimingMap[purchaseId] = true;
 
@@ -419,10 +430,17 @@ async function loadMyActiveProducts() {
                 showToast(`+${formatNaira(res.reward)} daily income dropped!`);
                 loadProfileData();
                 loadMyActiveProducts();
+              } else {
+                // If claim returned that countdown wasn't ready, advance target by 24h
+                t.setAttribute('data-target', String(currentTime + DAY_MS));
+                delete claimingMap[purchaseId];
               }
-            }).catch(e => console.error(e));
+            }).catch(() => {
+              delete claimingMap[purchaseId];
+            });
           }
         } else {
+          // Keep ticking down normally
           const hrs = Math.floor(diff / (1000 * 60 * 60));
           const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
           const secs = Math.floor((diff % (1000 * 60)) / 1000);
