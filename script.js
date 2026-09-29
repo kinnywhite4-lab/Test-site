@@ -133,11 +133,12 @@ function switchView(viewName) {
 }
 
 // -------------------------------------------------------------
-// AUTHENTICATION & SESSION MANAGEMENT
+// PERSISTENT AUTH & SESSION MANAGEMENT
 // -------------------------------------------------------------
 async function checkAuthSession() {
+  const savedUserId = localStorage.getItem('novavest_session') || '';
+  
   try {
-    const savedUserId = localStorage.getItem('novavest_session') || '';
     const res = await fetch(`/api/bootstrap?user_id=${encodeURIComponent(savedUserId)}`, { 
       credentials: 'include' 
     });
@@ -147,6 +148,7 @@ async function checkAuthSession() {
       currentUser = data.user;
       currentSettings = data.settings || null;
       localStorage.setItem('novavest_session', data.user.id);
+      localStorage.setItem('novavest_user', JSON.stringify(data.user));
 
       const authContainer = document.getElementById('auth-container');
       const appContainer = document.getElementById('app-container');
@@ -161,10 +163,35 @@ async function checkAuthSession() {
       switchView('home');
       return true;
     } else {
+      // Check local cache fallback to prevent accidental lockouts
+      const cached = localStorage.getItem('novavest_user');
+      if (cached) {
+        try {
+          currentUser = JSON.parse(cached);
+          const authContainer = document.getElementById('auth-container');
+          const appContainer = document.getElementById('app-container');
+          if (authContainer) authContainer.style.display = 'none';
+          if (appContainer) appContainer.style.display = 'block';
+          switchView('home');
+          return true;
+        } catch (e) {}
+      }
       showAuthScreen();
       return false;
     }
   } catch (err) {
+    const cached = localStorage.getItem('novavest_user');
+    if (cached) {
+      try {
+        currentUser = JSON.parse(cached);
+        const authContainer = document.getElementById('auth-container');
+        const appContainer = document.getElementById('app-container');
+        if (authContainer) authContainer.style.display = 'none';
+        if (appContainer) appContainer.style.display = 'block';
+        switchView('home');
+        return true;
+      } catch (e) {}
+    }
     showAuthScreen();
     return false;
   }
@@ -703,19 +730,21 @@ document.addEventListener('DOMContentLoaded', () => {
         if (data.success) {
           showToast('Welcome back!');
           
-          const uid = (data.user && data.user.id) || data.userId || data.id;
-          if (uid) {
-            localStorage.setItem('novavest_session', uid);
-          }
+          const uid = (data.user && data.user.id) || data.userId || data.id || phone;
+          localStorage.setItem('novavest_session', uid);
+          
           if (data.user) {
             currentUser = data.user;
+            localStorage.setItem('novavest_user', JSON.stringify(data.user));
           }
 
+          // Immediately unlock dashboard interface
           const authContainer = document.getElementById('auth-container');
           const appContainer = document.getElementById('app-container');
           if (authContainer) authContainer.style.display = 'none';
           if (appContainer) appContainer.style.display = 'block';
 
+          // Load data and maintain view
           await checkAuthSession();
           switchView('home');
         } else {
