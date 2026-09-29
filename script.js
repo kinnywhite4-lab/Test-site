@@ -1,76 +1,69 @@
+/* =============================================================
+   NovaVest Main Client Controller
+============================================================= */
 let currentUser = null;
-let currentBank = null;
-let userPurchases = [];
-let userDeposits = [];
-let userWithdrawals = [];
-let userTransactions = [];
-let availableChannels = [];
-let selectedChannel = null;
-let currentReceiptBase64 = null;
-let countdownInterval = null;
-let currentTeamData = null;
-let currentSelectedTier = 1;
+let currentSettings = null;
+let activeTeamTier = 1;
+let currentSelectedChannelId = null;
 
-function showToast(msg) {
+// Helper: Show standard toast
+function showToast(message) {
   const toast = document.getElementById('toast');
   if (!toast) return;
-  toast.innerText = msg;
-  toast.className = 'toast show';
+  toast.textContent = message;
+  toast.classList.add('show');
   setTimeout(() => {
-    toast.className = toast.className.replace('show', '');
+    toast.classList.remove('show');
   }, 3500);
 }
 
-function formatCurrency(amount) {
-  return '₦' + parseFloat(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-function switchView(viewName) {
-  document.querySelectorAll('.view-section').forEach(sec => sec.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
-
-  const targetSec = document.getElementById(`view-${viewName}`);
-  const targetBtn = document.querySelector(`.nav-item[data-view="${viewName}"]`);
-
-  if (targetSec) targetSec.classList.add('active');
-  if (targetBtn) targetBtn.classList.add('active');
-}
-
-document.querySelectorAll('[data-back]').forEach(btn => {
-  btn.addEventListener('click', () => {
-    switchView(btn.dataset.back);
-  });
-});
-
-async function fetchAPI(url, options = {}) {
-  options.headers = options.headers || {};
-  if (options.body && typeof options.body === 'object') {
-    options.headers['Content-Type'] = 'application/json';
-    options.body = JSON.stringify(options.body);
-  }
-
-  const localToken = localStorage.getItem('nv_token');
-  if (localToken) {
-    options.headers['Authorization'] = `Bearer ${localToken}`;
-  }
-  options.credentials = 'same-origin';
-
-  const res = await fetch(url, options);
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const error = new Error(data.error || 'Something went wrong, please try again.');
-    error.code = data.code;
-    throw error;
-  }
-  return data;
+// Helper: Format Naira currency
+function formatNaira(num) {
+  const val = Number(num) || 0;
+  return '₦' + val.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 // -------------------------------------------------------------
-// 1. CAROUSEL & DASHBOARD RENDERING
+// THEME SWITCHER LOGIC (Dark Obsidian <--> White & Blue Light)
+// -------------------------------------------------------------
+function initThemeToggle() {
+  const toggleBtn = document.getElementById('btn-theme-toggle');
+  const themeIcon = document.getElementById('theme-icon');
+
+  const savedTheme = localStorage.getItem('novavest_theme') || 'dark';
+  applyTheme(savedTheme);
+
+  if (toggleBtn) {
+    toggleBtn.addEventListener('click', () => {
+      const current = document.body.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+      const nextTheme = current === 'light' ? 'dark' : 'light';
+      applyTheme(nextTheme);
+    });
+  }
+
+  function applyTheme(theme) {
+    if (theme === 'light') {
+      document.body.setAttribute('data-theme', 'light');
+      if (themeIcon) {
+        themeIcon.className = 'fa-solid fa-moon';
+      }
+      localStorage.setItem('novavest_theme', 'light');
+    } else {
+      document.body.removeAttribute('data-theme');
+      if (themeIcon) {
+        themeIcon.className = 'fa-solid fa-sun';
+      }
+      localStorage.setItem('novavest_theme', 'dark');
+    }
+  }
+}
+
+// -------------------------------------------------------------
+// CAROUSEL ROTATION LOGIC
 // -------------------------------------------------------------
 function initCarousel() {
   const slides = document.querySelectorAll('.carousel-slide');
-  if (!slides.length) return;
+  if (!slides || slides.length === 0) return;
   let idx = 0;
   setInterval(() => {
     slides[idx].classList.remove('active');
@@ -79,825 +72,699 @@ function initCarousel() {
   }, 4000);
 }
 
-function renderDashboard() {
-  if (!currentUser) return;
+// -------------------------------------------------------------
+// VIEW NAVIGATION ROUTER
+// -------------------------------------------------------------
+function switchView(viewName) {
+  // Hide all views
+  const allViews = document.querySelectorAll('.view-section');
+  allViews.forEach(v => v.classList.remove('active'));
 
-  const uidEl = document.getElementById('profile-uid');
-  if (uidEl) uidEl.innerText = currentUser.id || '---';
+  // Show active view
+  const target = document.getElementById('view-' + viewName);
+  if (target) {
+    target.classList.add('active');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
 
-  const phoneEl = document.getElementById('profile-phone');
-  if (phoneEl) phoneEl.innerText = currentUser.phone_number;
+  // Update bottom tab navigation active states
+  const navItems = document.querySelectorAll('.bottom-nav .nav-item');
+  navItems.forEach(n => {
+    if (n.getAttribute('data-view') === viewName) {
+      n.classList.add('active');
+    } else {
+      n.classList.remove('active');
+    }
+  });
 
-  const depBalEl = document.getElementById('prof-deposit-bal');
-  if (depBalEl) depBalEl.innerText = formatCurrency(currentUser.balance);
-
-  const withBalEl = document.getElementById('prof-withdrawable-bal');
-  if (withBalEl) withBalEl.innerText = formatCurrency(currentUser.withdrawable_balance);
-
-  const totalWithEl = document.getElementById('prof-total-withdrawn');
-  if (totalWithEl) totalWithEl.innerText = formatCurrency(currentUser.total_withdrawn);
-
-  renderHomeProducts();
-  renderMyProducts();
+  // Trigger view-specific fresh data loading
+  if (viewName === 'home') {
+    loadProducts();
+    loadProfileData();
+  } else if (viewName === 'products') {
+    loadMyActiveProducts();
+  } else if (viewName === 'team') {
+    loadTeamData();
+  } else if (viewName === 'invite') {
+    loadInviteData();
+  } else if (viewName === 'profile') {
+    loadProfileData();
+  } else if (viewName === 'withdrawal') {
+    loadWithdrawalView();
+  } else if (viewName === 'recharge') {
+    loadRechargeView();
+  } else if (viewName === 'gift') {
+    loadGiftClaims();
+  }
 }
 
-async function renderHomeProducts() {
+// -------------------------------------------------------------
+// AUTHENTICATION & SESSION MANAGEMENT
+// -------------------------------------------------------------
+async function checkAuthSession() {
+  try {
+    const res = await fetch('/api/auth?action=me');
+    const data = await res.json();
+    if (data && data.success && data.user) {
+      currentUser = data.user;
+      document.getElementById('auth-container').style.display = 'none';
+      document.getElementById('app-container').style.display = 'block';
+
+      // Check for Admin Impersonation header
+      if (data.impersonating) {
+        const impBar = document.getElementById('impersonation-bar');
+        if (impBar) impBar.style.display = 'flex';
+      }
+
+      switchView('home');
+    } else {
+      showAuthScreen();
+    }
+  } catch (err) {
+    showAuthScreen();
+  }
+}
+
+function showAuthScreen() {
+  currentUser = null;
+  document.getElementById('auth-container').style.display = 'flex';
+  document.getElementById('app-container').style.display = 'none';
+}
+
+async function performLogout() {
+  try {
+    await fetch('/api/auth?action=logout', { method: 'POST' });
+  } catch (e) {}
+
+  // Explicit browser cookie eviction
+  document.cookie = "novavest_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+  document.cookie = "token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+  localStorage.removeItem('novavest_session');
+  localStorage.removeItem('novavest_user');
+
+  showToast('Logged out successfully');
+  setTimeout(() => {
+    window.location.reload();
+  }, 400);
+}
+
+// -------------------------------------------------------------
+// DATA LOADERS & DATA FETCHING
+// -------------------------------------------------------------
+async function loadProfileData() {
+  try {
+    const res = await fetch('/api/auth?action=me');
+    const data = await res.json();
+    if (data.success && data.user) {
+      currentUser = data.user;
+      
+      const phoneEl = document.getElementById('profile-phone');
+      const uidEl = document.getElementById('profile-uid');
+      const depBalEl = document.getElementById('prof-deposit-bal');
+      const withBalEl = document.getElementById('prof-withdrawable-bal');
+      const totWithEl = document.getElementById('prof-total-withdrawn');
+
+      if (phoneEl) phoneEl.textContent = currentUser.phone || 'Investor';
+      if (uidEl) uidEl.textContent = currentUser.id || '---';
+      if (depBalEl) depBalEl.textContent = formatNaira(currentUser.deposit_balance);
+      if (withBalEl) withBalEl.textContent = formatNaira(currentUser.withdrawable_balance);
+      if (totWithEl) totWithEl.textContent = formatNaira(currentUser.total_withdrawn);
+    }
+  } catch (err) {}
+}
+
+async function loadProducts() {
   const container = document.getElementById('home-product-list');
   if (!container) return;
-
   try {
-    const data = await fetchAPI('/api/purchase?action=catalog');
-    const products = data.products || [];
-
-    if (!products.length) {
-      container.innerHTML = '<div class="empty-state">No equipment available currently.</div>';
+    const res = await fetch('/api/products?action=list');
+    const data = await res.json();
+    if (!data.success || !data.products || data.products.length === 0) {
+      container.innerHTML = '<div class="empty-state">No equipment currently available.</div>';
       return;
     }
-
-    container.innerHTML = products.map(prod => `
+    container.innerHTML = data.products.map(p => `
       <div class="product-card">
         <div class="product-info">
-          <h4>${prod.name}</h4>
-          <div class="product-spec">Daily Income: <strong>${formatCurrency(prod.daily_income)}</strong></div>
-          <div class="product-spec">Cycle: <strong>${prod.period_days} Days</strong></div>
-          <div class="product-spec">Max Revenue: <strong>${formatCurrency(prod.total_revenue || (prod.daily_income * prod.period_days))}</strong></div>
-          <div class="product-price">Price: ${formatCurrency(prod.price)}</div>
+          <h4>${p.name}</h4>
+          <div class="product-spec">Daily Income: <strong>${formatNaira(p.daily_yield)}</strong></div>
+          <div class="product-spec">Cycle Duration: <strong>${p.duration_days} Days</strong></div>
+          <div class="product-price">${formatNaira(p.price)}</div>
         </div>
-        <button class="btn btn-primary btn-sm btn-buy" data-id="${prod.id}">Buy Now</button>
+        <button class="btn btn-primary btn-sm" onclick="buyProduct('${p.id}')">Buy Now</button>
       </div>
     `).join('');
-
-    container.querySelectorAll('.btn-buy').forEach(btn => {
-      btn.addEventListener('click', () => buyProduct(btn.dataset.id, btn));
-    });
-  } catch {}
+  } catch (err) {
+    container.innerHTML = '<div class="empty-state">Unable to load equipment list.</div>';
+  }
 }
 
-function renderMyProducts() {
+async function buyProduct(productId) {
+  if (!confirm('Confirm purchasing this VIP equipment?')) return;
+  try {
+    const res = await fetch('/api/products?action=buy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ productId })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Equipment purchased successfully!');
+      loadProfileData();
+      loadProducts();
+    } else {
+      showToast(data.message || 'Purchase failed.');
+    }
+  } catch (e) {
+    showToast('Failed to complete equipment purchase.');
+  }
+}
+
+async function loadMyActiveProducts() {
   const container = document.getElementById('my-product-list');
   if (!container) return;
-  if (!userPurchases.length) {
-    container.innerHTML = '<div class="empty-state">No equipment currently active.</div>';
-    return;
-  }
-
-  container.innerHTML = userPurchases.map(p => `
-    <div class="product-card" id="inv-card-${p.id}">
-      <div class="product-info" style="width:100%;">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <h4>${p.product_name}</h4>
-          <span class="sub-badge" style="background:${p.status === 'Active' ? '#dcfce7' : '#fee2e2'};color:${p.status === 'Active' ? '#166534' : '#b91c1c'};font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;">
-            ${p.status}
-          </span>
+  try {
+    const res = await fetch('/api/products?action=my_products');
+    const data = await res.json();
+    if (!data.success || !data.userProducts || data.userProducts.length === 0) {
+      container.innerHTML = '<div class="empty-state">You do not have any active equipment working.</div>';
+      return;
+    }
+    container.innerHTML = data.userProducts.map(up => `
+      <div class="product-card">
+        <div class="product-info">
+          <h4>${up.product_name}</h4>
+          <div class="product-spec">Daily Yield: <strong>${formatNaira(up.daily_yield)}</strong></div>
+          <div class="product-spec">Days Remaining: <strong>${up.days_remaining} / ${up.total_days}</strong></div>
+          <div class="drop-timer-box"><i class="fa-regular fa-clock"></i> Next Drop in: ${up.next_drop_countdown || 'Pending'}</div>
         </div>
-        <div class="product-spec">Cost: <strong>${formatCurrency(p.price)}</strong></div>
-        <div class="product-spec">Amount Paid: <strong class="text-success">${formatCurrency(p.amount_paid || 0)}</strong> / ${formatCurrency(p.total_revenue)}</div>
-        <div class="product-spec">Purchased: ${new Date(p.created_at).toLocaleString()}</div>
-        ${p.status === 'Active' ? `
-          <div class="drop-timer-box">
-            <i class="fa-solid fa-clock"></i> Next Income: <span class="countdown-span" data-target="${p.next_drop_time}">Calculating...</span>
-          </div>
-        ` : '<div style="font-size:11px;color:#94a3b8;margin-top:4px;">Cycle completed</div>'}
       </div>
-    </div>
-  `).join('');
-
-  startIncomeCountdowns();
-}
-
-function startIncomeCountdowns() {
-  if (countdownInterval) clearInterval(countdownInterval);
-  const updateTimers = () => {
-    const timerSpans = document.querySelectorAll('.countdown-span');
-    const now = Date.now();
-    let requiresRefresh = false;
-
-    timerSpans.forEach(el => {
-      const targetTime = new Date(el.dataset.target).getTime();
-      const diff = targetTime - now;
-
-      if (diff <= 0) {
-        el.innerText = 'Drop processing...';
-        requiresRefresh = true;
-      } else {
-        const hrs = Math.floor(diff / 3600000).toString().padStart(2, '0');
-        const mins = Math.floor((diff % 3600000) / 60000).toString().padStart(2, '0');
-        const secs = Math.floor((diff % 60000) / 1000).toString().padStart(2, '0');
-        el.innerText = `${hrs}:${mins}:${secs}`;
-      }
-    });
-
-    if (requiresRefresh) {
-      clearInterval(countdownInterval);
-      setTimeout(() => loadInitialData(), 3000);
-    }
-  };
-
-  updateTimers();
-  countdownInterval = setInterval(updateTimers, 1000);
-}
-
-// -------------------------------------------------------------
-// 2. PRODUCT PURCHASE
-// -------------------------------------------------------------
-async function buyProduct(productId, btn) {
-  if (btn) {
-    btn.disabled = true;
-    btn.innerText = 'Processing...';
-  }
-
-  try {
-    const res = await fetchAPI('/api/purchase', {
-      method: 'POST',
-      body: { productId }
-    });
-    showToast(res.message);
-    await loadInitialData();
+    `).join('');
   } catch (err) {
-    showToast(err.message);
-    if (err.code === 'INSUFFICIENT_BALANCE') {
-      setTimeout(() => openRechargePage(), 1000);
-    }
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.innerText = 'Buy Now';
-    }
+    container.innerHTML = '<div class="empty-state">Unable to load your equipment.</div>';
   }
 }
 
 // -------------------------------------------------------------
-// 3. SEPARATE INVITE PAGE LOGIC
+// DEDICATED INVITE & DEDICATED TEAM
 // -------------------------------------------------------------
-async function openInvitePage() {
-  switchView('invite');
-
-  if (currentUser && currentUser.referral_code) {
-    const linkInput = document.getElementById('invite-link-val');
-    const codeInput = document.getElementById('invite-code-val');
-    if (linkInput) linkInput.value = `${window.location.origin}/?ref=${currentUser.referral_code}`;
-    if (codeInput) codeInput.value = currentUser.referral_code;
-  }
-
+async function loadInviteData() {
   try {
-    const data = await fetchAPI('/api/team?action=invite');
-    const linkInput = document.getElementById('invite-link-val');
-    const codeInput = document.getElementById('invite-code-val');
-    const r1 = document.getElementById('invite-rate-l1');
-    const r2 = document.getElementById('invite-rate-l2');
-
-    if (linkInput && data.referral_link) linkInput.value = data.referral_link;
-    if (codeInput && data.referral_code) codeInput.value = data.referral_code;
-    if (r1 && data.rates?.level1) r1.innerText = `${data.rates.level1}%`;
-    if (r2 && data.rates?.level2) r2.innerText = `${data.rates.level2}%`;
-  } catch (err) {
-    console.error('Invite Load Error:', err);
-    showToast(err.message || 'Failed to load invite details.');
-  }
+    const res = await fetch('/api/team?action=invite_info');
+    const data = await res.json();
+    if (data.success) {
+      const linkInput = document.getElementById('invite-link-val');
+      const codeInput = document.getElementById('invite-code-val');
+      if (linkInput) linkInput.value = data.inviteLink || window.location.origin + '/?ref=' + (data.referralCode || '');
+      if (codeInput) codeInput.value = data.referralCode || '------';
+    }
+  } catch (e) {}
 }
 
-document.getElementById('btn-copy-invite-link')?.addEventListener('click', () => {
-  const val = document.getElementById('invite-link-val')?.value;
-  if (!val) return;
-  navigator.clipboard.writeText(val).then(() => showToast('Referral link copied to clipboard!'));
-});
-
-document.getElementById('btn-copy-invite-code')?.addEventListener('click', () => {
-  const val = document.getElementById('invite-code-val')?.value;
-  if (!val) return;
-  navigator.clipboard.writeText(val).then(() => showToast('Referral code copied to clipboard!'));
-});
-
-// -------------------------------------------------------------
-// 4. SEPARATE TEAM PAGE LOGIC
-// -------------------------------------------------------------
-async function openTeamPage() {
-  switchView('team');
+async function loadTeamData() {
   try {
-    const data = await fetchAPI('/api/team');
-    currentTeamData = data;
+    const res = await fetch('/api/team?action=overview');
+    const data = await res.json();
+    if (data.success) {
+      const t1Count = document.getElementById('team1-members-count');
+      const t1Income = document.getElementById('team1-members-income');
+      const t2Count = document.getElementById('team2-members-count');
+      const t2Income = document.getElementById('team2-members-income');
 
-    const t1Count = document.getElementById('team1-members-count');
-    const t1Income = document.getElementById('team1-members-income');
-    const t2Count = document.getElementById('team2-members-count');
-    const t2Income = document.getElementById('team2-members-income');
+      if (t1Count) t1Count.textContent = data.tier1_count || 0;
+      if (t1Income) t1Income.textContent = formatNaira(data.tier1_income || 0);
+      if (t2Count) t2Count.textContent = data.tier2_count || 0;
+      if (t2Income) t2Income.textContent = formatNaira(data.tier2_income || 0);
 
-    if (t1Count) t1Count.innerText = data.team1?.total_members || 0;
-    if (t1Income) t1Income.innerText = formatCurrency(data.team1?.total_income || 0);
-    if (t2Count) t2Count.innerText = data.team2?.total_members || 0;
-    if (t2Income) t2Income.innerText = formatCurrency(data.team2?.total_income || 0);
-
-    selectTeamTier(currentSelectedTier);
-  } catch (err) {
-    console.error('Team Load Error:', err);
-    showToast(err.message || 'Failed to load team data.');
-  }
+      renderTeamTierTable(activeTeamTier, data);
+    }
+  } catch (e) {}
 }
 
 function selectTeamTier(tier) {
-  currentSelectedTier = tier;
-  const card1 = document.getElementById('card-team-tier-1');
-  const card2 = document.getElementById('card-team-tier-2');
-  const titleEl = document.getElementById('team-active-title');
-  const tbody = document.getElementById('team-table-body');
-
+  activeTeamTier = tier;
+  const c1 = document.getElementById('card-team-tier-1');
+  const c2 = document.getElementById('card-team-tier-2');
   if (tier === 1) {
-    card1?.classList.add('active');
-    card2?.classList.remove('active');
-    if (titleEl) titleEl.innerText = 'First Referral (Team 1) Members History';
+    if (c1) c1.classList.add('active');
+    if (c2) c2.classList.remove('active');
+    document.getElementById('team-active-title').textContent = 'First Referral Members History';
   } else {
-    card2?.classList.add('active');
-    card1?.classList.remove('active');
-    if (titleEl) titleEl.innerText = 'Second Referral (Team 2) Members History';
+    if (c2) c2.classList.add('active');
+    if (c1) c1.classList.remove('active');
+    document.getElementById('team-active-title').textContent = 'Second Referral Members History';
   }
+  loadTeamData();
+}
 
-  if (!currentTeamData || !tbody) return;
-
-  const records = tier === 1 ? currentTeamData.team1?.records : currentTeamData.team2?.records;
-
-  if (!records || !records.length) {
-    tbody.innerHTML = `<tr><td colspan="3" class="empty-state">No investments or commissions recorded for Tier ${tier} yet.</td></tr>`;
+function renderTeamTierTable(tier, overviewData) {
+  const tbody = document.getElementById('team-table-body');
+  if (!tbody) return;
+  const members = tier === 1 ? overviewData.tier1_members : overviewData.tier2_members;
+  if (!members || members.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="3" class="empty-state">No members joined in Tier ${tier} yet.</td></tr>`;
     return;
   }
-
-  tbody.innerHTML = records.map(r => `
+  tbody.innerHTML = members.map(m => `
     <tr>
-      <td>
-        <strong>${r.phone}</strong>
-        <div style="font-size:10px; color:var(--text-muted);">${new Date(r.created_at).toLocaleDateString()}</div>
-      </td>
-      <td>
-        <div>${r.product_name}</div>
-        <strong style="color:var(--text-main); font-size:11px;">${formatCurrency(r.amount_bought)}</strong>
-      </td>
-      <td>
-        <strong class="text-success">+${formatCurrency(r.commission)}</strong>
-      </td>
+      <td>${m.phone_masked || ('ID: ' + m.id)}</td>
+      <td>${m.product_bought || 'No Equipment'}</td>
+      <td class="text-success font-bold">${formatNaira(m.commission_earned)}</td>
     </tr>
   `).join('');
 }
 
 // -------------------------------------------------------------
-// 5. STRICT DEPOSIT FLOW (NAME & PROOF MANDATORY)
+// RECHARGE LOGIC
 // -------------------------------------------------------------
-async function openRechargePage() {
-  switchView('recharge');
+async function loadRechargeView() {
   document.getElementById('recharge-stage-select').style.display = 'block';
   document.getElementById('recharge-stage-pay').style.display = 'none';
-  currentReceiptBase64 = null;
-  const previewWrap = document.getElementById('receipt-preview-wrap');
-  if (previewWrap) previewWrap.style.display = 'none';
 
+  const channelsWrap = document.getElementById('payment-channels-list');
+  if (!channelsWrap) return;
   try {
-    const data = await fetchAPI('/api/deposit?action=channels');
-    availableChannels = data.channels || [];
-    renderChannels();
-  } catch {
-    showToast('Failed to load payment channels.');
-  }
-}
-
-function renderChannels() {
-  const container = document.getElementById('payment-channels-list');
-  if (!container) return;
-
-  if (!availableChannels.length) {
-    container.innerHTML = '<p class="field-hint">No payment channels active at this time.</p>';
-    selectedChannel = null;
-    return;
-  }
-
-  container.innerHTML = availableChannels.map((c, idx) => `
-    <div class="channel-option ${idx === 0 ? 'active' : ''}" data-id="${c.id}">
-      <div class="chan-left">
-        <i class="fa-solid fa-credit-card"></i>
-        <span>${c.name}</span>
-      </div>
-      <div class="radio-circle"></div>
-    </div>
-  `).join('');
-
-  selectedChannel = availableChannels[0];
-
-  container.querySelectorAll('.channel-option').forEach(el => {
-    el.addEventListener('click', () => {
-      container.querySelectorAll('.channel-option').forEach(c => c.classList.remove('active'));
-      el.classList.add('active');
-      const foundId = parseInt(el.dataset.id, 10);
-      selectedChannel = availableChannels.find(c => c.id === foundId);
-    });
-  });
-}
-
-const btnProceed = document.getElementById('btn-proceed-to-payment');
-if (btnProceed) {
-  btnProceed.addEventListener('click', () => {
-    const amountVal = document.getElementById('recharge-amount-input').value;
-    const numAmount = parseFloat(amountVal);
-
-    if (isNaN(numAmount) || numAmount < 1000) {
-      return showToast('Please enter an amount of at least ₦1,000.');
-    }
-    if (!selectedChannel) {
-      return showToast('Please select a payment channel.');
-    }
-
-    document.getElementById('det-channel-title').innerText = selectedChannel.name;
-    document.getElementById('det-pay-amount').innerText = formatCurrency(numAmount);
-    document.getElementById('det-bank-name').innerText = selectedChannel.bank_name;
-    document.getElementById('det-acc-name').innerText = selectedChannel.account_name;
-    document.getElementById('det-acc-number').innerText = selectedChannel.account_number;
-    document.getElementById('det-instructions').innerText = selectedChannel.instructions || 'Transfer the exact amount and upload your payment slip.';
-
-    document.getElementById('recharge-stage-select').style.display = 'none';
-    document.getElementById('recharge-stage-pay').style.display = 'block';
-  });
-}
-
-const btnChangeChan = document.getElementById('btn-change-channel');
-if (btnChangeChan) {
-  btnChangeChan.addEventListener('click', () => {
-    document.getElementById('recharge-stage-pay').style.display = 'none';
-    document.getElementById('recharge-stage-select').style.display = 'block';
-  });
-}
-
-const copyAccBtn = document.getElementById('btn-copy-account');
-if (copyAccBtn) {
-  copyAccBtn.addEventListener('click', () => {
-    if (!selectedChannel) return;
-    navigator.clipboard.writeText(selectedChannel.account_number).then(() => {
-      showToast('Account number copied!');
-    });
-  });
-}
-
-document.querySelectorAll('.amount-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.amount-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById('recharge-amount-input').value = btn.dataset.amt;
-  });
-});
-
-const fileInput = document.getElementById('recharge-receipt-file');
-if (fileInput) {
-  fileInput.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = function(event) {
-      const img = new Image();
-      img.onload = function() {
-        const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 900;
-        let width = img.width;
-        let height = img.height;
-
-        if (width > MAX_WIDTH) {
-          height = Math.round((height * MAX_WIDTH) / width);
-          width = MAX_WIDTH;
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, width, height);
-
-        currentReceiptBase64 = canvas.toDataURL('image/jpeg', 0.7);
-
-        const previewWrap = document.getElementById('receipt-preview-wrap');
-        const previewImg = document.getElementById('receipt-preview-img');
-        if (previewWrap && previewImg) {
-          previewImg.src = currentReceiptBase64;
-          previewWrap.style.display = 'block';
-        }
-      };
-      img.src = event.target.result;
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
-const confirmRechargeBtn = document.getElementById('btn-confirm-recharge');
-if (confirmRechargeBtn) {
-  confirmRechargeBtn.addEventListener('click', async () => {
-    const amount = document.getElementById('recharge-amount-input').value;
-    const senderName = document.getElementById('recharge-sender-name').value;
-
-    const nameEmpty = !senderName || !senderName.trim();
-    const receiptEmpty = !currentReceiptBase64;
-
-    if (nameEmpty && receiptEmpty) {
-      return showToast('Please enter your name and upload payment receipt.');
-    }
-    if (nameEmpty) {
-      return showToast('Please enter your name before submitting the deposit.');
-    }
-    if (receiptEmpty) {
-      return showToast('Please upload your payment receipt before submitting the deposit.');
-    }
-
-    confirmRechargeBtn.disabled = true;
-    confirmRechargeBtn.innerText = 'Submitting...';
-
-    try {
-      const res = await fetchAPI('/api/deposit', {
-        method: 'POST',
-        body: {
-          amount,
-          channel_id: selectedChannel.id,
-          sender_name: senderName.trim(),
-          proof_url: currentReceiptBase64
-        }
-      });
-
-      showToast(res.message || 'Deposit request submitted successfully!');
-      document.getElementById('recharge-sender-name').value = '';
-      if (fileInput) fileInput.value = '';
-      currentReceiptBase64 = null;
-
-      switchView('home');
-      loadInitialData().catch(() => {});
-    } catch (err) {
-      showToast(err.message || 'Failed to submit deposit.');
-    } finally {
-      confirmRechargeBtn.disabled = false;
-      confirmRechargeBtn.innerText = 'Submit Deposit for Review';
-    }
-  });
-}
-
-// -------------------------------------------------------------
-// 6. WITHDRAWAL SUBMISSION
-// -------------------------------------------------------------
-function openWithdrawPage() {
-  document.getElementById('withdraw-available-bal').innerText = formatCurrency(currentUser.withdrawable_balance);
-  const bankBox = document.getElementById('withdraw-bank-summary');
-
-  if (!currentBank) {
-    bankBox.innerHTML = `
-      <p style="color: var(--danger);">No bank account added.</p>
-      <button class="btn btn-secondary btn-sm" style="margin-top: 8px;" id="btn-goto-add-bank">Add Bank Account</button>
-    `;
-    const addBtn = document.getElementById('btn-goto-add-bank');
-    if (addBtn) addBtn.onclick = () => switchView('bank-card');
-  } else {
-    const masked = currentBank.account_number.substring(0, 3) + '****' + currentBank.account_number.substring(7);
-    bankBox.innerHTML = `
-      <div><strong>Bank:</strong> ${currentBank.bank_name}</div>
-      <div><strong>Account Name:</strong> ${currentBank.account_name}</div>
-      <div><strong>Account Number:</strong> ${masked}</div>
-    `;
-  }
-  switchView('withdrawal');
-}
-
-const submitWithdrawBtn = document.getElementById('btn-submit-withdraw');
-if (submitWithdrawBtn) {
-  submitWithdrawBtn.addEventListener('click', async () => {
-    const amount = document.getElementById('input-withdraw-amount').value;
-    if (!amount || parseFloat(amount) <= 0) {
-      return showToast('Please enter a valid withdrawal amount.');
-    }
-
-    submitWithdrawBtn.disabled = true;
-    submitWithdrawBtn.innerText = 'Processing...';
-
-    try {
-      const res = await fetchAPI('/api/withdraw', {
-        method: 'POST',
-        body: { amount }
-      });
-      showToast(res.message);
-      document.getElementById('input-withdraw-amount').value = '';
-      await loadInitialData();
-      switchView('home');
-    } catch (err) {
-      showToast(err.message);
-      if (err.code === 'NO_BANK_ACCOUNT') {
-        setTimeout(() => switchView('bank-card'), 1000);
-      }
-    } finally {
-      submitWithdrawBtn.disabled = false;
-      submitWithdrawBtn.innerText = 'Submit Withdrawal';
-    }
-  });
-}
-
-// -------------------------------------------------------------
-// 7. GIFT CODE REDEEM PAGE
-// -------------------------------------------------------------
-async function openGiftPage() {
-  switchView('gift');
-  try {
-    const data = await fetchAPI('/api/gift-code');
-    document.getElementById('gift-total-claimed').innerText = formatCurrency(data.total_claimed || 0);
-    const list = document.getElementById('gift-claims-list');
-    if (!data.claims || !data.claims.length) {
-      list.innerHTML = '<div class="empty-state">No gift codes claimed yet.</div>';
+    const res = await fetch('/api/bank?action=deposit_channels');
+    const data = await res.json();
+    if (data.success && data.channels && data.channels.length > 0) {
+      currentSelectedChannelId = data.channels[0].id;
+      channelsWrap.innerHTML = data.channels.map((ch, idx) => `
+        <div class="channel-option ${idx === 0 ? 'active' : ''}" data-chan-id="${ch.id}" onclick="selectPaymentChannel('${ch.id}', this)">
+          <div class="chan-left">
+            <i class="fa-solid fa-credit-card text-success"></i>
+            <span>${ch.channel_name || 'Bank Transfer Direct'}</span>
+          </div>
+          <div class="radio-circle"></div>
+        </div>
+      `).join('');
     } else {
-      list.innerHTML = data.claims.map(c => `
+      channelsWrap.innerHTML = '<div class="empty-state">No payment channels active.</div>';
+    }
+  } catch (e) {
+    channelsWrap.innerHTML = '<div class="empty-state">Failed to load channels.</div>';
+  }
+}
+
+function selectPaymentChannel(id, el) {
+  currentSelectedChannelId = id;
+  const options = document.querySelectorAll('.channel-option');
+  options.forEach(o => o.classList.remove('active'));
+  el.classList.add('active');
+}
+
+// -------------------------------------------------------------
+// WITHDRAWAL LOGIC
+// -------------------------------------------------------------
+async function loadWithdrawalView() {
+  const balEl = document.getElementById('withdraw-available-bal');
+  const summaryEl = document.getElementById('withdraw-bank-summary');
+  if (balEl && currentUser) {
+    balEl.textContent = formatNaira(currentUser.withdrawable_balance);
+  }
+  try {
+    const res = await fetch('/api/bank?action=get_user_bank');
+    const data = await res.json();
+    if (data.success && data.bank) {
+      summaryEl.innerHTML = `
+        <strong>Linked Bank:</strong> ${data.bank.bank_name}<br>
+        <strong>Account Number:</strong> ${data.bank.account_number}<br>
+        <strong>Account Name:</strong> ${data.bank.account_holder}
+      `;
+    } else {
+      summaryEl.innerHTML = `
+        <p style="color:var(--warning);">No withdrawal bank account linked yet.</p>
+        <button class="btn btn-sm btn-primary" style="margin-top:8px;" onclick="switchView('bank-card')">Link Bank Card Now</button>
+      `;
+    }
+  } catch (e) {
+    summaryEl.innerHTML = '<p>Unable to verify linked bank account.</p>';
+  }
+}
+
+// -------------------------------------------------------------
+// GIFT CODES
+// -------------------------------------------------------------
+async function loadGiftClaims() {
+  const container = document.getElementById('gift-claims-list');
+  const totalEl = document.getElementById('gift-total-claimed');
+  if (!container) return;
+  try {
+    const res = await fetch('/api/bank?action=my_gift_claims');
+    const data = await res.json();
+    if (data.success) {
+      if (totalEl) totalEl.textContent = formatNaira(data.total_claimed || 0);
+      if (!data.claims || data.claims.length === 0) {
+        container.innerHTML = '<div class="empty-state">No gift codes redeemed yet.</div>';
+        return;
+      }
+      container.innerHTML = data.claims.map(c => `
         <div class="history-item">
           <div>
-            <div class="item-title">${c.code}</div>
-            <div class="item-date">${new Date(c.created_at).toLocaleString()}</div>
+            <div class="item-title">${c.code_title || 'Redeemed Gift'}</div>
+            <div class="item-date">${new Date(c.claimed_at).toLocaleString()}</div>
           </div>
-          <div class="item-amount in">+${formatCurrency(c.amount)}</div>
+          <div class="item-amount in">+${formatNaira(c.reward_amount)}</div>
         </div>
       `).join('');
     }
-  } catch {}
+  } catch (e) {
+    container.innerHTML = '<div class="empty-state">Unable to load gift history.</div>';
+  }
 }
 
-const formPageGift = document.getElementById('form-page-gift');
-if (formPageGift) {
-  formPageGift.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const input = document.getElementById('input-page-gift-code');
-    const btn = document.getElementById('btn-claim-gift');
-    const code = input.value.trim();
+// -------------------------------------------------------------
+// EVENT INITIALIZATION ON DOM READY
+// -------------------------------------------------------------
+document.addEventListener('DOMContentLoaded', () => {
+  initThemeToggle();
+  initCarousel();
+  checkAuthSession();
 
-    btn.disabled = true;
-    btn.innerText = 'Claiming...';
-
-    try {
-      const res = await fetchAPI('/api/gift-code', {
-        method: 'POST',
-        body: { code }
-      });
-      showToast(res.message);
-      input.value = '';
-      await openGiftPage();
-      loadInitialData().catch(() => {});
-    } catch (err) {
-      showToast(err.message);
-    } finally {
-      btn.disabled = false;
-      btn.innerText = 'Claim Reward';
-    }
+  // Bottom Navigation tabs
+  document.querySelectorAll('.bottom-nav .nav-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const v = btn.getAttribute('data-view');
+      switchView(v);
+    });
   });
-}
 
-// -------------------------------------------------------------
-// 8. BANK FORM
-// -------------------------------------------------------------
-const bankForm = document.getElementById('form-dedicated-bank');
-if (bankForm) {
-  bankForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const bank_name = document.getElementById('bank-input-name').value;
-    const account_number = document.getElementById('bank-input-number').value;
-    const account_name = document.getElementById('bank-input-holder').value;
+  // Quick Action buttons on Home
+  const actRecharge = document.getElementById('btn-nav-recharge');
+  const actWithdraw = document.getElementById('btn-nav-withdraw');
+  const actInvite = document.getElementById('btn-nav-invite');
+  const actGift = document.getElementById('btn-nav-gift');
 
-    try {
-      const res = await fetchAPI('/api/bank', {
-        method: 'POST',
-        body: { bank_name, account_number, account_name }
-      });
-      showToast(res.message);
-      await loadInitialData();
-      switchView('profile');
-    } catch (err) {
-      showToast(err.message);
-    }
+  if (actRecharge) actRecharge.addEventListener('click', () => switchView('recharge'));
+  if (actWithdraw) actWithdraw.addEventListener('click', () => switchView('withdrawal'));
+  if (actInvite) actInvite.addEventListener('click', () => switchView('invite'));
+  if (actGift) actGift.addEventListener('click', () => switchView('gift'));
+
+  // Subpage Back buttons
+  document.querySelectorAll('.back-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const backTarget = btn.getAttribute('data-back') || 'home';
+      switchView(backTarget);
+    });
   });
-}
 
-// -------------------------------------------------------------
-// 9. TRANSACTION HISTORY
-// -------------------------------------------------------------
-function renderDedicatedHistory(title, items, type) {
-  document.getElementById('history-page-title').innerText = title;
-  const container = document.getElementById('history-page-items');
+  // Profile Menu shortcuts
+  const mBank = document.getElementById('menu-bank-card');
+  const mDep = document.getElementById('menu-dep-history');
+  const mWith = document.getElementById('menu-with-history');
+  const mTx = document.getElementById('menu-tx-history');
 
-  if (!items || !items.length) {
-    container.innerHTML = '<div class="empty-state">No transaction records found.</div>';
-  } else {
-    container.innerHTML = items.map(it => {
-      let statusClass = 'badge-pending';
-      const status = it.status || 'Approved';
-      if (status === 'Approved') statusClass = 'badge-approved';
-      if (status === 'Declined') statusClass = 'badge-declined';
+  if (mBank) mBank.addEventListener('click', () => switchView('bank-card'));
+  if (mDep) mDep.addEventListener('click', () => { switchView('history'); loadHistory('deposit'); });
+  if (mWith) mWith.addEventListener('click', () => { switchView('history'); loadHistory('withdrawal'); });
+  if (mTx) mTx.addEventListener('click', () => { switchView('history'); loadHistory('all'); });
 
-      let amountClass = 'in';
-      let sign = '+';
-      let titleText = it.title || it.channel_name || it.bank_name || 'Transaction';
+  // Logout button
+  const logoutBtn = document.getElementById('btn-logout');
+  if (logoutBtn) logoutBtn.addEventListener('click', performLogout);
 
-      if (type === 'withdraw' || it.direction === 'out') {
-        amountClass = 'out';
-        sign = '-';
+  // Return to admin button
+  const retAdminBtn = document.getElementById('btn-return-admin');
+  if (retAdminBtn) {
+    retAdminBtn.addEventListener('click', async () => {
+      await fetch('/api/auth?action=stop_impersonate', { method: 'POST' });
+      window.location.href = '/admin.html';
+    });
+  }
+
+  // Auth toggle links (Login <-> Register switch)
+  const showRegLink = document.getElementById('link-show-register');
+  const showLoginLink = document.getElementById('link-show-login');
+  const loginForm = document.getElementById('login-form');
+  const regForm = document.getElementById('register-form');
+  const authSub = document.getElementById('auth-subtitle');
+
+  if (showRegLink) {
+    showRegLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      loginForm.style.display = 'none';
+      regForm.style.display = 'block';
+      authSub.textContent = 'Create a new investor account';
+    });
+  }
+
+  if (showLoginLink) {
+    showLoginLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      regForm.style.display = 'none';
+      loginForm.style.display = 'block';
+      authSub.textContent = 'Log in to your account';
+    });
+  }
+
+  // Login submission
+  if (loginForm) {
+    loginForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const phone = document.getElementById('login-phone').value.trim();
+      const password = document.getElementById('login-password').value;
+      try {
+        const res = await fetch('/api/auth?action=login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone, password })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast('Welcome back!');
+          checkAuthSession();
+        } else {
+          showToast(data.message || 'Login failed.');
+        }
+      } catch (err) {
+        showToast('Network error during login.');
+      }
+    });
+  }
+
+  // Register submission
+  if (regForm) {
+    regForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const phone = document.getElementById('reg-phone').value.trim();
+      const password = document.getElementById('reg-password').value;
+      const confirm = document.getElementById('reg-confirm-password').value;
+      const refCode = document.getElementById('reg-ref-code').value.trim();
+
+      if (password !== confirm) {
+        showToast('Passwords do not match.');
+        return;
       }
 
-      return `
-        <div class="history-item">
-          <div>
-            <div class="item-title">
-              ${titleText}
-              <span class="item-badge ${statusClass}">${status}</span>
-            </div>
-            <div class="item-date">${new Date(it.created_at).toLocaleString()}</div>
-          </div>
-          <div class="item-amount ${amountClass}">
-            ${sign}${formatCurrency(it.amount)}
-          </div>
+      try {
+        const res = await fetch('/api/auth?action=register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone, password, refCode })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast('Registration successful! Logging in...');
+          checkAuthSession();
+        } else {
+          showToast(data.message || 'Registration failed.');
+        }
+      } catch (err) {
+        showToast('Network error during registration.');
+      }
+    });
+  }
+
+  // Predefined recharge amounts
+  document.querySelectorAll('.amount-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.amount-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('recharge-amount-input').value = btn.getAttribute('data-amt');
+    });
+  });
+
+  // Proceed to payment screen
+  const proceedPayBtn = document.getElementById('btn-proceed-to-payment');
+  if (proceedPayBtn) {
+    proceedPayBtn.addEventListener('click', async () => {
+      const amount = Number(document.getElementById('recharge-amount-input').value);
+      if (!amount || amount < 1000) {
+        showToast('Minimum recharge amount is ₦1,000');
+        return;
+      }
+      if (!currentSelectedChannelId) {
+        showToast('Please select a payment channel');
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/bank?action=channel_detail&id=${currentSelectedChannelId}`);
+        const data = await res.json();
+        if (data.success && data.channel) {
+          document.getElementById('det-pay-amount').textContent = formatNaira(amount);
+          document.getElementById('det-bank-name').textContent = data.channel.bank_name;
+          document.getElementById('det-acc-name').textContent = data.channel.account_name;
+          document.getElementById('det-acc-number').textContent = data.channel.account_number;
+          document.getElementById('det-instructions').textContent = data.channel.instructions || 'Transfer the exact amount and upload your screenshot below.';
+
+          document.getElementById('recharge-stage-select').style.display = 'none';
+          document.getElementById('recharge-stage-pay').style.display = 'block';
+        } else {
+          showToast('Channel details not found.');
+        }
+      } catch (e) {
+        showToast('Failed to load channel details.');
+      }
+    });
+  }
+
+  const changeChanBtn = document.getElementById('btn-change-channel');
+  if (changeChanBtn) {
+    changeChanBtn.addEventListener('click', () => {
+      document.getElementById('recharge-stage-select').style.display = 'block';
+      document.getElementById('recharge-stage-pay').style.display = 'none';
+    });
+  }
+
+  // Copy account number
+  const copyAccBtn = document.getElementById('btn-copy-account');
+  if (copyAccBtn) {
+    copyAccBtn.addEventListener('click', () => {
+      const acc = document.getElementById('det-acc-number').textContent;
+      navigator.clipboard.writeText(acc).then(() => showToast('Account number copied!'));
+    });
+  }
+
+  // Copy invite link and code
+  const copyLinkBtn = document.getElementById('btn-copy-invite-link');
+  if (copyLinkBtn) {
+    copyLinkBtn.addEventListener('click', () => {
+      const lk = document.getElementById('invite-link-val').value;
+      navigator.clipboard.writeText(lk).then(() => showToast('Invite link copied!'));
+    });
+  }
+  const copyCodeBtn = document.getElementById('btn-copy-invite-code');
+  if (copyCodeBtn) {
+    copyCodeBtn.addEventListener('click', () => {
+      const cd = document.getElementById('invite-code-val').value;
+      navigator.clipboard.writeText(cd).then(() => showToast('Referral code copied!'));
+    });
+  }
+
+  // Bank Account Submission
+  const dedicatedBankForm = document.getElementById('form-dedicated-bank');
+  if (dedicatedBankForm) {
+    dedicatedBankForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const bankName = document.getElementById('bank-input-name').value.trim();
+      const accountNumber = document.getElementById('bank-input-number').value.trim();
+      const accountHolder = document.getElementById('bank-input-holder').value.trim();
+
+      if (accountNumber.length !== 10) {
+        showToast('NUBAN Account Number must be 10 digits.');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/bank?action=save_user_bank', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bankName, accountNumber, accountHolder })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast('Bank details saved successfully!');
+          switchView('profile');
+        } else {
+          showToast(data.message || 'Failed to save bank.');
+        }
+      } catch (err) {
+        showToast('Error saving bank details.');
+      }
+    });
+  }
+
+  // Gift Code Claim Submission
+  const giftForm = document.getElementById('form-page-gift');
+  if (giftForm) {
+    giftForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const code = document.getElementById('input-page-gift-code').value.trim();
+      try {
+        const res = await fetch('/api/bank?action=claim_gift', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Success! You received ${formatNaira(data.reward)}`);
+          document.getElementById('input-page-gift-code').value = '';
+          loadGiftClaims();
+          loadProfileData();
+        } else {
+          showToast(data.message || 'Invalid or expired gift code.');
+        }
+      } catch (e) {
+        showToast('Failed to claim gift code.');
+      }
+    });
+  }
+
+  // Withdrawal Submission
+  const submitWithBtn = document.getElementById('btn-submit-withdraw');
+  if (submitWithBtn) {
+    submitWithBtn.addEventListener('click', async () => {
+      const amount = Number(document.getElementById('input-withdraw-amount').value);
+      if (!amount || amount < 1000) {
+        showToast('Minimum withdrawal is ₦1,000');
+        return;
+      }
+      try {
+        const res = await fetch('/api/withdraw?action=request', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast('Withdrawal submitted for processing!');
+          switchView('profile');
+        } else {
+          showToast(data.message || 'Withdrawal failed.');
+        }
+      } catch (e) {
+        showToast('Error submitting withdrawal request.');
+      }
+    });
+  }
+});
+
+// History records loader
+async function loadHistory(type) {
+  const titleEl = document.getElementById('history-page-title');
+  const itemsEl = document.getElementById('history-page-items');
+  if (titleEl) titleEl.textContent = type.toUpperCase() + ' HISTORY';
+  if (!itemsEl) return;
+  itemsEl.innerHTML = '<div class="empty-state">Loading history...</div>';
+
+  try {
+    const res = await fetch(`/api/bank?action=history&type=${type}`);
+    const data = await res.json();
+    if (!data.success || !data.records || data.records.length === 0) {
+      itemsEl.innerHTML = '<div class="empty-state">No transaction records found.</div>';
+      return;
+    }
+    itemsEl.innerHTML = data.records.map(r => `
+      <div class="history-item">
+        <div>
+          <div class="item-title">${r.title || r.type} <span class="item-badge badge-${r.status.toLowerCase()}">${r.status}</span></div>
+          <div class="item-date">${new Date(r.created_at).toLocaleString()}</div>
         </div>
-      `;
-    }).join('');
-  }
-  switchView('history');
-}
-
-// -------------------------------------------------------------
-// 10. APP INITIALIZATION & RECOVERY
-// -------------------------------------------------------------
-async function loadInitialData() {
-  try {
-    const data = await fetchAPI('/api/bootstrap');
-    currentUser = data.user;
-    currentBank = data.bank;
-    userPurchases = data.purchases || [];
-    userDeposits = data.deposits || [];
-    userWithdrawals = data.withdrawals || [];
-    userTransactions = data.transactions || [];
-
-    if (currentBank) {
-      const bName = document.getElementById('bank-input-name');
-      const bNum = document.getElementById('bank-input-number');
-      const bHold = document.getElementById('bank-input-holder');
-      if (bName) bName.value = currentBank.bank_name || '';
-      if (bNum) bNum.value = currentBank.account_number || '';
-      if (bHold) bHold.value = currentBank.account_name || '';
-    }
-
-    renderDashboard();
-
-    document.getElementById('auth-container').style.display = 'none';
-    document.getElementById('app-container').style.display = 'block';
-
-    const impersonationBar = document.getElementById('impersonation-bar');
-    if (impersonationBar) {
-      impersonationBar.style.display = localStorage.getItem('nv_impersonating') === 'true' ? 'flex' : 'none';
-    }
-  } catch (err) {
-    document.getElementById('auth-container').style.display = 'flex';
-    document.getElementById('app-container').style.display = 'none';
+        <div class="item-amount ${r.direction === 'in' ? 'in' : 'out'}">${r.direction === 'in' ? '+' : '-'}${formatNaira(r.amount)}</div>
+      </div>
+    `).join('');
+  } catch (e) {
+    itemsEl.innerHTML = '<div class="empty-state">Failed to load transactions.</div>';
   }
 }
-
-// Navigation Actions
-document.getElementById('btn-nav-recharge')?.addEventListener('click', openRechargePage);
-document.getElementById('btn-nav-withdraw')?.addEventListener('click', openWithdrawPage);
-document.getElementById('btn-nav-invite')?.addEventListener('click', openInvitePage);
-document.getElementById('btn-nav-gift')?.addEventListener('click', openGiftPage);
-document.getElementById('menu-bank-card')?.addEventListener('click', () => switchView('bank-card'));
-
-document.getElementById('menu-dep-history')?.addEventListener('click', async () => {
-  try {
-    const res = await fetchAPI('/api/deposit');
-    renderDedicatedHistory('Deposit History', res.deposits, 'deposit');
-  } catch {
-    renderDedicatedHistory('Deposit History', userDeposits, 'deposit');
-  }
-});
-
-document.getElementById('menu-with-history')?.addEventListener('click', async () => {
-  try {
-    const res = await fetchAPI('/api/withdraw');
-    renderDedicatedHistory('Withdrawal History', res.withdrawals, 'withdraw');
-  } catch {
-    renderDedicatedHistory('Withdrawal History', userWithdrawals, 'withdraw');
-  }
-});
-
-document.getElementById('menu-tx-history')?.addEventListener('click', async () => {
-  try {
-    const res = await fetchAPI('/api/transactions');
-    renderDedicatedHistory('Transaction History', res.transactions, 'tx');
-  } catch {
-    renderDedicatedHistory('Transaction History', userTransactions, 'tx');
-  }
-});
-
-// Bottom navigation buttons
-document.querySelectorAll('.nav-item').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const view = btn.dataset.view;
-    if (view === 'team') {
-      openTeamPage();
-    } else {
-      switchView(view);
-    }
-  });
-});
-
-document.getElementById('btn-return-admin')?.addEventListener('click', () => {
-  localStorage.removeItem('nv_impersonating');
-  window.location.href = '/admin.html';
-});
-
-// -------------------------------------------------------------
-// 11. AUTH & AUTO-REFERRAL DETECTION
-// -------------------------------------------------------------
-const urlParams = new URLSearchParams(window.location.search);
-const autoRef = urlParams.get('ref');
-if (autoRef) {
-  const regRefInput = document.getElementById('reg-ref-code');
-  if (regRefInput) regRefInput.value = autoRef.trim().toUpperCase();
-}
-
-document.getElementById('link-show-register')?.addEventListener('click', (e) => {
-  e.preventDefault();
-  document.getElementById('login-form').style.display = 'none';
-  document.getElementById('register-form').style.display = 'block';
-  document.getElementById('auth-subtitle').innerText = 'Create your account';
-});
-
-document.getElementById('link-show-login')?.addEventListener('click', (e) => {
-  e.preventDefault();
-  document.getElementById('register-form').style.display = 'none';
-  document.getElementById('login-form').style.display = 'block';
-  document.getElementById('auth-subtitle').innerText = 'Log in to your account';
-});
-
-document.getElementById('register-form')?.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const phone = document.getElementById('reg-phone').value;
-  const password = document.getElementById('reg-password').value;
-  const confirm = document.getElementById('reg-confirm-password').value;
-  const ref = document.getElementById('reg-ref-code').value;
-
-  try {
-    const res = await fetchAPI('/api/auth?action=register', {
-      method: 'POST',
-      body: { phone_number: phone, password, confirm_password: confirm, ref }
-    });
-    if (res.token) localStorage.setItem('nv_token', res.token);
-    showToast('Registration successful!');
-    await loadInitialData();
-  } catch (err) {
-    showToast(err.message);
-  }
-});
-
-document.getElementById('login-form')?.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const phone = document.getElementById('login-phone').value;
-  const password = document.getElementById('login-password').value;
-
-  try {
-    const res = await fetchAPI('/api/auth?action=login', {
-      method: 'POST',
-      body: { phone_number: phone, password }
-    });
-    if (res.token) localStorage.setItem('nv_token', res.token);
-    showToast('Login successful!');
-    await loadInitialData();
-  } catch (err) {
-    showToast(err.message);
-  }
-});
-
-// -------------------------------------------------------------
-// 12. LOGOUT: BULLETPROOF SESSION EVICTION
-// -------------------------------------------------------------
-const logoutBtn = document.getElementById('btn-logout');
-if (logoutBtn) {
-  logoutBtn.addEventListener('click', async () => {
-    // 1. Remove all client storage tokens
-    localStorage.removeItem('nv_token');
-    localStorage.removeItem('nv_impersonating');
-    sessionStorage.clear();
-
-    // 2. Kill cookie directly on client
-    document.cookie = 'novavest_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0;';
-
-    // 3. Inform backend to delete the HttpOnly session cookie
-    try {
-      await fetchAPI('/api/auth?action=logout');
-    } catch {}
-
-    // 4. Reset in-memory session
-    currentUser = null;
-    currentBank = null;
-
-    // 5. Hide app and show Auth screen cleanly
-    document.getElementById('app-container').style.display = 'none';
-    document.getElementById('auth-container').style.display = 'flex';
-    document.getElementById('login-form').style.display = 'block';
-    document.getElementById('register-form').style.display = 'none';
-    document.getElementById('auth-subtitle').innerText = 'Log in to your account';
-
-    // Clear form inputs
-    const loginPhone = document.getElementById('login-phone');
-    const loginPwd = document.getElementById('login-password');
-    if (loginPhone) loginPhone.value = '';
-    if (loginPwd) loginPwd.value = '';
-
-    showToast('Logged out successfully.');
-  });
-}
-
-initCarousel();
-loadInitialData();
