@@ -137,12 +137,16 @@ function switchView(viewName) {
 // -------------------------------------------------------------
 async function checkAuthSession() {
   try {
-    const res = await fetch('/api/bootstrap', { credentials: 'include' });
+    const savedUserId = localStorage.getItem('novavest_session') || '';
+    const res = await fetch(`/api/bootstrap?user_id=${encodeURIComponent(savedUserId)}`, { 
+      credentials: 'include' 
+    });
     const data = await res.json();
 
     if (data && data.success && data.user) {
       currentUser = data.user;
       currentSettings = data.settings || null;
+      localStorage.setItem('novavest_session', data.user.id);
 
       const authContainer = document.getElementById('auth-container');
       const appContainer = document.getElementById('app-container');
@@ -155,11 +159,14 @@ async function checkAuthSession() {
       }
 
       switchView('home');
+      return true;
     } else {
       showAuthScreen();
+      return false;
     }
   } catch (err) {
     showAuthScreen();
+    return false;
   }
 }
 
@@ -197,7 +204,10 @@ async function performLogout() {
 // -------------------------------------------------------------
 async function loadProfileData() {
   try {
-    const res = await fetch('/api/bootstrap', { credentials: 'include' });
+    const savedUserId = localStorage.getItem('novavest_session') || '';
+    const res = await fetch(`/api/bootstrap?user_id=${encodeURIComponent(savedUserId)}`, { 
+      credentials: 'include' 
+    });
     const data = await res.json();
     if (data && data.success && data.user) {
       currentUser = data.user;
@@ -285,7 +295,10 @@ async function loadMyActiveProducts() {
   if (timerInterval) clearInterval(timerInterval);
 
   try {
-    const res = await fetch('/api/bootstrap', { credentials: 'include' });
+    const savedUserId = localStorage.getItem('novavest_session') || '';
+    const res = await fetch(`/api/bootstrap?user_id=${encodeURIComponent(savedUserId)}`, { 
+      credentials: 'include' 
+    });
     const data = await res.json();
     const myProducts = data.myProducts || data.purchases || (data.data && data.data.myProducts) || [];
 
@@ -302,13 +315,11 @@ async function loadMyActiveProducts() {
       const totalDays = Number(up.duration_days || up.period_days || 30);
       const totalRev = Number(up.total_revenue || (dailyYield * totalDays));
 
-      // Calculate elapsed days & dropped income
       const createdMs = up.created_at ? new Date(up.created_at).getTime() : now;
       const daysElapsed = Math.min(totalDays, Math.floor((now - createdMs) / (1000 * 60 * 60 * 24)));
       const droppedIncome = Number(up.dropped_income || up.total_earned || (daysElapsed * dailyYield));
       const remainingIncome = Math.max(0, totalRev - droppedIncome);
 
-      // Next 24-hr income drop calculation
       let nextDropMs;
       if (up.next_drop_time) {
         nextDropMs = new Date(up.next_drop_time).getTime();
@@ -334,7 +345,6 @@ async function loadMyActiveProducts() {
               Daily Income: <strong class="text-success">${formatNaira(dailyYield)}</strong>
             </div>
 
-            <!-- Income Dropped vs Remaining Ratio -->
             <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; margin: 10px 0;">
               <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px;">
                 <span>Total Dropped:</span>
@@ -349,7 +359,6 @@ async function loadMyActiveProducts() {
               </div>
             </div>
 
-            <!-- Live Countdown Timer -->
             <div class="drop-timer-box" style="padding: 8px 12px; background: rgba(0, 122, 255, 0.1); border-radius: 6px; font-weight: bold; color: #007aff;">
               <i class="fa-regular fa-clock"></i> Next Drop in: 
               <span class="live-countdown" data-target="${nextDropMs}" id="timer-${i}">Calculating...</span>
@@ -389,7 +398,10 @@ async function loadMyActiveProducts() {
 // -------------------------------------------------------------
 async function loadInviteData() {
   try {
-    const res = await fetch('/api/team?action=invite', { credentials: 'include' });
+    const savedUserId = localStorage.getItem('novavest_session') || '';
+    const res = await fetch(`/api/team?action=invite&user_id=${encodeURIComponent(savedUserId)}`, { 
+      credentials: 'include' 
+    });
     const data = await res.json();
     if (data && data.success) {
       const linkInput = document.getElementById('invite-link-val');
@@ -410,7 +422,10 @@ async function loadTeamData() {
   }
 
   try {
-    const res = await fetch('/api/team', { credentials: 'include' });
+    const savedUserId = localStorage.getItem('novavest_session') || '';
+    const res = await fetch(`/api/team?user_id=${encodeURIComponent(savedUserId)}`, { 
+      credentials: 'include' 
+    });
     const data = await res.json();
 
     if (!data || !data.success) {
@@ -669,11 +684,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Robust Login Submission Handler
   if (loginForm) {
     loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const phone = document.getElementById('login-phone').value.trim();
       const password = document.getElementById('login-password').value;
+      
       try {
         const res = await fetch('/api/auth?action=login', {
           method: 'POST',
@@ -682,11 +699,27 @@ document.addEventListener('DOMContentLoaded', () => {
           body: JSON.stringify({ phone, password })
         });
         const data = await res.json();
+        
         if (data.success) {
           showToast('Welcome back!');
-          checkAuthSession();
+          
+          const uid = (data.user && data.user.id) || data.userId || data.id;
+          if (uid) {
+            localStorage.setItem('novavest_session', uid);
+          }
+          if (data.user) {
+            currentUser = data.user;
+          }
+
+          const authContainer = document.getElementById('auth-container');
+          const appContainer = document.getElementById('app-container');
+          if (authContainer) authContainer.style.display = 'none';
+          if (appContainer) appContainer.style.display = 'block';
+
+          await checkAuthSession();
+          switchView('home');
         } else {
-          showToast(data.message || 'Login failed.');
+          showToast(data.message || data.error || 'Login failed.');
         }
       } catch (err) {
         showToast('Network error during login.');
@@ -694,6 +727,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Register Form Handler
   if (regForm) {
     regForm.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -717,7 +751,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const data = await res.json();
         if (data.success) {
           showToast('Registration successful! Logging in...');
-          checkAuthSession();
+          const uid = (data.user && data.user.id) || data.userId || data.id;
+          if (uid) {
+            localStorage.setItem('novavest_session', uid);
+          }
+          await checkAuthSession();
         } else {
           showToast(data.message || 'Registration failed.');
         }
