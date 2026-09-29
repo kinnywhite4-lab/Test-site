@@ -312,7 +312,7 @@ async function buyProduct(productId) {
 }
 
 // -------------------------------------------------------------
-// ACTIVE PRODUCTS: COUNTDOWN, CREATED AT, & DROPPED RATIO
+// ACTIVE PRODUCTS: COUNTDOWN, CREATED AT, & CLAIM ACTION
 // -------------------------------------------------------------
 async function loadMyActiveProducts() {
   const container = document.getElementById('my-product-list') || 
@@ -347,15 +347,7 @@ async function loadMyActiveProducts() {
       const droppedIncome = Number(up.dropped_income !== undefined ? up.dropped_income : 0);
       const remainingIncome = Number(up.remaining_income !== undefined ? up.remaining_income : Math.max(0, totalRev - droppedIncome));
 
-      let nextDropMs;
-      if (up.next_drop_time) {
-        nextDropMs = new Date(up.next_drop_time).getTime();
-      } else {
-        const interval = 24 * 60 * 60 * 1000;
-        const createdMs = up.created_at ? new Date(up.created_at).getTime() : now;
-        const diff = (now - createdMs) % interval;
-        nextDropMs = now + (interval - diff);
-      }
+      let nextDropMs = up.next_drop_time ? new Date(up.next_drop_time).getTime() : (now + 86400000);
 
       return `
         <div class="product-card" style="padding: 16px; margin-bottom: 16px; border-radius: 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08);">
@@ -391,30 +383,44 @@ async function loadMyActiveProducts() {
             <!-- Live Countdown Timer -->
             <div class="drop-timer-box" style="padding: 10px 12px; background: rgba(0, 122, 255, 0.12); border-radius: 6px; font-weight: bold; color: #29b6f6; display: flex; align-items: center; justify-content: space-between;">
               <span><i class="fa-regular fa-clock"></i> Next Income Drop:</span> 
-              <span class="live-countdown" data-target="${nextDropMs}" id="timer-${i}">00:00:00</span>
+              <span class="live-countdown" data-purchase-id="${up.id}" data-target="${nextDropMs}" id="timer-${i}">00:00:00</span>
             </div>
           </div>
         </div>
       `;
     }).join('');
 
-    let hasTriggeredDrop = false;
+    const claimingMap = {};
 
     function updateCountdowns() {
       const timers = document.querySelectorAll('.live-countdown');
       timers.forEach(t => {
         const target = Number(t.getAttribute('data-target'));
+        const purchaseId = t.getAttribute('data-purchase-id');
         const diff = target - Date.now();
 
         if (diff <= 0) {
-          t.textContent = "00:00:00";
-          if (!hasTriggeredDrop) {
-            hasTriggeredDrop = true;
-            clearInterval(timerInterval);
-            setTimeout(() => {
-              loadProfileData();
-              loadMyActiveProducts();
-            }, 1500);
+          t.textContent = "Dropping income...";
+
+          // When countdown hits zero, trigger the claim via purchase.js ONCE
+          if (!claimingMap[purchaseId]) {
+            claimingMap[purchaseId] = true;
+
+            fetch('/api/purchase?action=claim', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ 
+                purchaseId: purchaseId, 
+                user_id: localStorage.getItem('novavest_session') 
+              })
+            }).then(r => r.json()).then(res => {
+              if (res.success) {
+                showToast(`+${formatNaira(res.reward)} daily income dropped!`);
+                loadProfileData();
+                loadMyActiveProducts();
+              }
+            }).catch(e => console.error(e));
           }
         } else {
           const hrs = Math.floor(diff / (1000 * 60 * 60));
