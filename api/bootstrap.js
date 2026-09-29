@@ -49,7 +49,7 @@ export default async function handler(req, res) {
     const cookies = parseCookies(req);
     const sessionUserId = cookies['novavest_session'] || req.query.user_id || req.headers['x-user-id'];
 
-    // 1. Retrieve products catalog
+    // 1. Fetch products from database
     let rawProducts = [];
     try {
       rawProducts = await sql`SELECT * FROM products ORDER BY price ASC`;
@@ -70,21 +70,29 @@ export default async function handler(req, res) {
       const price = Number(p.price || 0);
       const daily = Number(p.daily_yield || p.daily_income || 0);
       const days = Number(p.duration_days || p.period_days || 30);
+      const rev = Number(p.total_revenue || (daily * days));
+
       return {
         id: p.id,
+        product_id: p.id,
         name: p.name || 'VIP Equipment',
         title: p.name || 'VIP Equipment',
         price: price,
         amount: price,
         daily_yield: daily,
         daily_income: daily,
+        daily_revenue: daily,
         duration_days: days,
         period_days: days,
-        total_revenue: Number(p.total_revenue || (daily * days))
+        days: days,
+        total_revenue: rev,
+        total_yield: rev,
+        status: 'Active',
+        is_active: true
       };
     });
 
-    // 2. Retrieve system settings
+    // 2. Fetch platform settings
     const settings = {
       withdrawals_enabled: 'true',
       withdrawal_fee_percent: '10',
@@ -98,9 +106,9 @@ export default async function handler(req, res) {
       settingRows.forEach(r => { settings[r.key] = r.value; });
     } catch (e) {}
 
-    // 3. Retrieve user record and active equipment
+    // 3. Fetch user and purchased equipment
     let user = null;
-    let myProducts = [];
+    let myEquipment = [];
 
     if (sessionUserId) {
       const userRows = await sql`SELECT * FROM users WHERE id = ${sessionUserId} LIMIT 1`.catch(() => []);
@@ -113,7 +121,9 @@ export default async function handler(req, res) {
           phone_number: rawUser.phone || rawUser.phone_number || '',
           referral_code: rawUser.referral_code || '',
           deposit_balance: getDepositBal(rawUser),
+          balance: getDepositBal(rawUser),
           withdrawable_balance: getWithdrawBal(rawUser),
+          withdrawal_balance: getWithdrawBal(rawUser),
           total_deposited: Number(rawUser.total_deposited || 0),
           total_withdrawn: Number(rawUser.total_withdrawn || 0),
           created_at: rawUser.created_at
@@ -135,23 +145,27 @@ export default async function handler(req, res) {
         }
 
         const prodMap = new Map();
-        products.forEach(p => prodMap.set(p.id, p));
+        products.forEach(p => prodMap.set(String(p.id), p));
 
-        myProducts = (rawPurchases || []).map(item => {
-          const matched = prodMap.get(item.product_id) || {};
+        myEquipment = (rawPurchases || []).map(item => {
+          const matched = prodMap.get(String(item.product_id)) || {};
           const price = Number(item.price || item.amount_paid || matched.price || 0);
           const daily = Number(item.daily_yield || item.daily_income || matched.daily_income || 0);
-          const days = Number(item.duration_days || item.period_days || matched.period_days || 30);
+          const days = Number(item.duration_days || item.period_days || matched.duration_days || 30);
+          const totalRev = Number(item.total_revenue || (daily * days));
+
           return {
             id: item.id,
             product_id: item.product_id,
-            name: item.name || matched.name || 'Active Equipment',
-            product_name: item.name || matched.name || 'Active Equipment',
+            name: item.name || matched.name || 'VIP Equipment',
+            product_name: item.name || matched.name || 'VIP Equipment',
             price: price,
             amount_paid: price,
             daily_income: daily,
+            daily_yield: daily,
             duration_days: days,
-            total_revenue: Number(item.total_revenue || (daily * days)),
+            period_days: days,
+            total_revenue: totalRev,
             status: (item.status || 'Active').charAt(0).toUpperCase() + (item.status || 'Active').slice(1).toLowerCase(),
             created_at: item.created_at || new Date().toISOString(),
             next_drop_time: item.next_drop_time || new Date(Date.now() + 86400000).toISOString()
@@ -160,18 +174,36 @@ export default async function handler(req, res) {
       }
     }
 
+    // Deliver all expected root and nested keys simultaneously
     return res.status(200).json({
       success: true,
+      data: {
+        user,
+        products,
+        equipment: products,
+        myProducts: myEquipment,
+        userEquipment: myEquipment,
+        purchases: myEquipment,
+        settings
+      },
       user,
       products,
       equipment: products,
-      myProducts,
-      purchases: myProducts,
-      userEquipment: myProducts,
+      catalog: products,
+      myProducts: myEquipment,
+      userEquipment: myEquipment,
+      purchases: myEquipment,
       settings
     });
 
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message || 'Error bootstrapping application' });
+    return res.status(200).json({
+      success: false,
+      error: error.message,
+      products: [],
+      equipment: [],
+      myProducts: [],
+      purchases: []
+    });
   }
 }
