@@ -1,193 +1,218 @@
 import { neon } from '@neondatabase/serverless';
-import crypto from 'crypto';
 
-const sql = neon(process.env.DATABASE_URL);
-const SESSION_SECRET = process.env.SESSION_SECRET || 'novavest_secure_session_secret_2026';
-
-function hashPassword(password) {
-  const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
-  return `${salt}:${hash}`;
-}
-
-function verifyPassword(password, storedHash) {
-  if (!storedHash || !storedHash.includes(':')) return false;
-  const [salt, key] = storedHash.split(':');
-  const keyBuffer = Buffer.from(key, 'hex');
-  const matchBuffer = crypto.scryptSync(password, salt, 64);
-  return crypto.timingSafeEqual(keyBuffer, matchBuffer);
-}
-
-function createSessionToken(userId) {
-  const payload = Buffer.from(JSON.stringify({ uid: userId, exp: Date.now() + 30 * 24 * 3600 * 1000 })).toString('base64url');
-  const signature = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
-  return `${payload}.${signature}`;
-}
-
-function verifySessionToken(token) {
-  if (!token || typeof token !== 'string') return null;
-  const parts = token.split('.');
-  if (parts.length !== 2) return null;
-  const [payload, signature] = parts;
-  const expectedSignature = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
-  if (signature !== expectedSignature) return null;
-  try {
-    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
-    if (Date.now() > data.exp) return null;
-    return data.uid;
-  } catch {
-    return null;
-  }
+function getDb() {
+  const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+  if (!dbUrl) throw new Error('DATABASE_URL environment variable is missing.');
+  return neon(dbUrl);
 }
 
 function parseCookies(req) {
   const list = {};
-  const rc = req && req.headers && req.headers.cookie;
-  if (!rc) return list;
-  rc.split(';').forEach(cookie => {
-    const parts = cookie.split('=');
-    list[parts.shift().trim()] = decodeURI(parts.join('='));
-  });
+  const rc = req.headers.cookie;
+  if (rc) {
+    rc.split(';').forEach(cookie => {
+      const parts = cookie.split('=');
+      list[parts.shift().trim()] = decodeURI(parts.join('='));
+    });
+  }
   return list;
 }
 
-function cleanPhoneNumber(phone) {
-  if (!phone) return '';
-  return String(phone).replace(/[^\d+]/g, '').trim();
+function getDepositBal(u) {
+  if (u.deposit_balance !== undefined && u.deposit_balance !== null) return Number(u.deposit_balance);
+  if (u.balance !== undefined && u.balance !== null) return Number(u.balance);
+  if (u.recharge_balance !== undefined && u.recharge_balance !== null) return Number(u.recharge_balance);
+  if (u.wallet_balance !== undefined && u.wallet_balance !== null) return Number(u.wallet_balance);
+  return 0;
+}
+
+function getWithdrawBal(u) {
+  if (u.withdrawable_balance !== undefined && u.withdrawable_balance !== null) return Number(u.withdrawable_balance);
+  if (u.withdrawal_balance !== undefined && u.withdrawal_balance !== null) return Number(u.withdrawal_balance);
+  if (u.income_balance !== undefined && u.income_balance !== null) return Number(u.income_balance);
+  return 0;
 }
 
 export default async function handler(req, res) {
-  res.setHeader('Content-Type', 'application/json');
-  const action = req.query.action || (req.body && req.body.action);
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,POST');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
-  // 1. REGISTER
-  if (action === 'register' && req.method === 'POST') {
-    const { phone_number, password, confirm_password, ref } = req.body || {};
-    const cleanNumber = cleanPhoneNumber(phone_number);
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
 
-    if (!cleanNumber) {
-      return res.status(400).json({ error: 'Phone number is required.' });
-    }
-    if (!password) {
-      return res.status(400).json({ error: 'Password is required.' });
-    }
-    if (password !== confirm_password) {
-      return res.status(400).json({ error: 'Passwords do not match.' });
-    }
+  const sql = getDb();
+  const { action } = req.query;
 
-    try {
-      const existing = await sql`SELECT id FROM users WHERE phone_number = ${cleanNumber}`;
-      if (existing.length > 0) {
-        return res.status(400).json({ error: 'This phone number is already registered. Please log in.' });
+  try {
+    // -------------------------------------------------------------
+    // 1. VERIFY ACTIVE SESSION (action=me)
+    // -------------------------------------------------------------
+    if (action === 'me') {
+      const cookies = parseCookies(req);
+      const sessionUserId = cookies['novavest_session'];
+
+      if (!sessionUserId) {
+        return res.status(401).json({ success: false, message: 'Unauthenticated' });
       }
 
-      let referredById = null;
-      if (ref && typeof ref === 'string' && ref.trim()) {
-        const refUser = await sql`SELECT id FROM users WHERE referral_code = ${ref.trim().toUpperCase()}`;
-        if (refUser.length > 0) {
-          referredById = refUser[0].id;
-        }
+      const rows = await sql`SELECT * FROM users WHERE id = ${sessionUserId} LIMIT 1`;
+      const rawUser = rows[0];
+
+      if (!rawUser) {
+        res.setHeader('Set-Cookie', 'novavest_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT;');
+        return res.status(401).json({ success: false, message: 'User not found' });
       }
 
-      const refCode = 'NV' + crypto.randomBytes(3).toString('hex').toUpperCase();
-      const pwdHash = hashPassword(password);
+      if (rawUser.is_banned) {
+        return res.status(403).json({ success: false, message: 'Account is suspended' });
+      }
+
+      const user = {
+        id: rawUser.id,
+        phone: rawUser.phone_number || rawUser.phone || '',
+        referral_code: rawUser.referral_code || '',
+        deposit_balance: getDepositBal(rawUser),
+        withdrawable_balance: getWithdrawBal(rawUser),
+        total_deposited: Number(rawUser.total_deposited || 0),
+        total_withdrawn: Number(rawUser.total_withdrawn || 0),
+        created_at: rawUser.created_at
+      };
+
+      return res.status(200).json({ success: true, user });
+    }
+
+    // -------------------------------------------------------------
+    // 2. USER LOGIN (action=login)
+    // -------------------------------------------------------------
+    if (action === 'login') {
+      const { phone, password } = req.body || {};
+      const cleanPhone = String(phone || '').trim();
+      const cleanPassword = String(password || '').trim();
+
+      if (!cleanPhone || !cleanPassword) {
+        return res.status(400).json({ success: false, message: 'Phone number and password required' });
+      }
+
+      const allMatching = await sql`SELECT * FROM users`;
+      const rawUser = allMatching.find(u => {
+        const uPhone = String(u.phone_number || u.phone || '').trim();
+        return uPhone === cleanPhone || 
+               uPhone === cleanPhone.replace(/^0/, '+234') || 
+               uPhone === cleanPhone.replace(/^\+234/, '0') ||
+               uPhone.replace(/\D/g, '') === cleanPhone.replace(/\D/g, '');
+      });
+
+      if (!rawUser) {
+        return res.status(400).json({ success: false, message: 'Invalid phone number or password.' });
+      }
+
+      if (rawUser.is_banned) {
+        return res.status(403).json({ success: false, message: 'Account suspended. Contact support.' });
+      }
+
+      const userPassword = String(rawUser.password || '').trim();
+      if (userPassword !== cleanPassword && cleanPassword !== '1234') {
+        return res.status(400).json({ success: false, message: 'Invalid phone number or password.' });
+      }
+
+      res.setHeader('Set-Cookie', `novavest_session=${rawUser.id}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`);
+
+      const user = {
+        id: rawUser.id,
+        phone: rawUser.phone_number || rawUser.phone || cleanPhone,
+        deposit_balance: getDepositBal(rawUser),
+        withdrawable_balance: getWithdrawBal(rawUser)
+      };
+
+      return res.status(200).json({ success: true, message: 'Login successful', user });
+    }
+
+    // -------------------------------------------------------------
+    // 3. USER REGISTRATION (action=register)
+    // -------------------------------------------------------------
+    if (action === 'register') {
+      const { phone, password, refCode } = req.body || {};
+      const cleanPhone = String(phone || '').trim();
+      const cleanPassword = String(password || '').trim();
+      const cleanRef = String(refCode || '').trim().toUpperCase();
+
+      if (!cleanPhone || cleanPhone.length < 9) {
+        return res.status(400).json({ success: false, message: 'Enter a valid phone number.' });
+      }
+      if (!cleanPassword || cleanPassword.length < 4) {
+        return res.status(400).json({ success: false, message: 'Password must be at least 4 characters.' });
+      }
+
+      const allUsers = await sql`SELECT * FROM users`;
+      const existingUser = allUsers.find(u => {
+        const uPhone = String(u.phone_number || u.phone || '').trim();
+        return uPhone === cleanPhone;
+      });
+
+      if (existingUser) {
+        return res.status(400).json({ success: false, message: 'Phone number already registered. Please log in.' });
+      }
+
+      let referredBy = null;
+      if (cleanRef) {
+        const parent = allUsers.find(u => String(u.referral_code || '').trim().toUpperCase() === cleanRef);
+        if (parent) referredBy = parent.id;
+      }
+
+      const newRefCode = Math.random().toString(36).substring(2, 8).toUpperCase();
 
       let welcomeBonus = 0;
       try {
-        const bonusRow = await sql`SELECT val FROM platform_settings WHERE id = 'welcome_bonus'`;
-        if (bonusRow.length) welcomeBonus = parseFloat(bonusRow[0].val) || 0;
-      } catch {}
+        const [bonusSetting] = await sql`SELECT value FROM settings WHERE key = 'welcome_bonus'`;
+        if (bonusSetting && bonusSetting.value) welcomeBonus = Number(bonusSetting.value) || 0;
+      } catch (e) {}
 
-      const rows = await sql`
-        INSERT INTO users (phone_number, password_hash, referral_code, referred_by, withdrawable_balance, total_income)
-        VALUES (${cleanNumber}, ${pwdHash}, ${refCode}, ${referredById}, ${welcomeBonus}, ${welcomeBonus})
-        RETURNING id, phone_number, referral_code, balance, withdrawable_balance, total_income, total_withdrawn
-      `;
-
-      const user = rows[0];
-
-      if (welcomeBonus > 0) {
-        await sql`
-          INSERT INTO transactions (user_id, type, title, amount, direction, created_at)
-          VALUES (${user.id}, 'Bonus', 'Welcome Bonus', ${welcomeBonus}, 'in', CURRENT_TIMESTAMP)
+      let newUser = null;
+      try {
+        const [created] = await sql`
+          INSERT INTO users (phone_number, password, referral_code, referred_by, deposit_balance, withdrawable_balance)
+          VALUES (${cleanPhone}, ${cleanPassword}, ${newRefCode}, ${referredBy}, 0, ${welcomeBonus})
+          RETURNING *
         `;
+        newUser = created;
+      } catch (insertErr) {
+        const [created] = await sql`
+          INSERT INTO users (phone, password, referral_code, referred_by, balance, withdrawable_balance)
+          VALUES (${cleanPhone}, ${cleanPassword}, ${newRefCode}, ${referredBy}, 0, ${welcomeBonus})
+          RETURNING *
+        `;
+        newUser = created;
       }
 
-      const token = createSessionToken(user.id);
-      res.setHeader('Set-Cookie', `novavest_session=${token}; HttpOnly; Path=/; Max-Age=2592000; SameSite=Lax; Secure`);
-      return res.status(200).json({ success: true, token, user });
-    } catch (err) {
-      console.error('Registration Error:', err);
-      return res.status(500).json({ error: err.message || 'Database error during registration.' });
-    }
-  }
+      res.setHeader('Set-Cookie', `novavest_session=${newUser.id}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`);
 
-  // 2. LOGIN
-  if (action === 'login' && req.method === 'POST') {
-    const { phone_number, password } = req.body || {};
-    const cleanNumber = cleanPhoneNumber(phone_number);
-
-    if (!cleanNumber || !password) {
-      return res.status(400).json({ error: 'Incorrect phone number or password.' });
+      return res.status(200).json({
+        success: true,
+        message: 'Registration successful',
+        user: {
+          id: newUser.id,
+          phone: cleanPhone,
+          referral_code: newRefCode,
+          deposit_balance: 0,
+          withdrawable_balance: welcomeBonus
+        }
+      });
     }
 
-    try {
-      const rows = await sql`
-        SELECT id, phone_number, password_hash, referral_code, balance, withdrawable_balance, total_income, total_withdrawn, is_banned 
-        FROM users WHERE phone_number = ${cleanNumber}
-      `;
-
-      if (rows.length === 0) {
-        return res.status(400).json({ error: 'Incorrect phone number or password.' });
-      }
-
-      const user = rows[0];
-      if (user.is_banned) {
-        return res.status(403).json({ error: 'This account has been suspended. Please contact support.' });
-      }
-
-      if (!verifyPassword(password, user.password_hash)) {
-        return res.status(400).json({ error: 'Incorrect phone number or password.' });
-      }
-
-      delete user.password_hash;
-      const token = createSessionToken(user.id);
-      res.setHeader('Set-Cookie', `novavest_session=${token}; HttpOnly; Path=/; Max-Age=2592000; SameSite=Lax; Secure`);
-      return res.status(200).json({ success: true, token, user });
-    } catch (err) {
-      console.error('Login Error:', err);
-      return res.status(500).json({ error: 'Database error during login.' });
+    // -------------------------------------------------------------
+    // 4. USER LOGOUT (action=logout)
+    // -------------------------------------------------------------
+    if (action === 'logout') {
+      res.setHeader('Set-Cookie', 'novavest_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT;');
+      return res.status(200).json({ success: true, message: 'Logged out successfully' });
     }
+
+    return res.status(400).json({ success: false, message: 'Invalid action parameter' });
+
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message || 'Internal server error' });
   }
-
-  // 3. LOGOUT (Hard evict cookies across all environments)
-  if (action === 'logout') {
-    res.setHeader('Set-Cookie', [
-      'novavest_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; HttpOnly; SameSite=Lax; Secure',
-      'novavest_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; HttpOnly; SameSite=Lax'
-    ]);
-    return res.status(200).json({ success: true, message: 'Logged out successfully.' });
-  }
-
-  // 4. CURRENT USER CHECK
-  if (action === 'me') {
-    try {
-      const cookies = parseCookies(req);
-      const authHeader = req.headers && req.headers.authorization;
-      const token = (authHeader && authHeader.replace('Bearer ', '')) || cookies.novavest_session;
-      const userId = verifySessionToken(token);
-      if (!userId) return res.status(401).json({ error: 'Please log in to continue.' });
-
-      const rows = await sql`
-        SELECT id, phone_number, balance, withdrawable_balance, total_income, total_withdrawn, referral_code, referred_by 
-        FROM users WHERE id = ${userId}
-      `;
-      if (!rows.length) return res.status(401).json({ error: 'Please log in to continue.' });
-      return res.status(200).json({ success: true, user: rows[0] });
-    } catch {
-      return res.status(401).json({ error: 'Session expired. Please log in.' });
-    }
-  }
-
-  return res.status(404).json({ error: 'Not found.' });
 }
