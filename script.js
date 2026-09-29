@@ -7,6 +7,7 @@ let activeTeamTier = 1;
 let currentSelectedChannelId = null;
 let timerInterval = null;
 let currentTeamData = null;
+let userHasLinkedBank = false;
 
 // Helper: Show standard toast
 function showToast(message) {
@@ -565,7 +566,7 @@ function renderTeamTierTable(tier, overviewData) {
 }
 
 // -------------------------------------------------------------
-// RECHARGE LOGIC (RESTORED & COMPLETE)
+// RECHARGE LOGIC
 // -------------------------------------------------------------
 async function loadRechargeView() {
   const sSelect = document.getElementById('recharge-stage-select');
@@ -607,7 +608,7 @@ function selectPaymentChannel(id, el) {
 }
 
 // -------------------------------------------------------------
-// WITHDRAWAL LOGIC
+// WITHDRAWAL LOGIC (UPDATED WITH BANK VERIFICATION & GUIDANCE)
 // -------------------------------------------------------------
 async function loadWithdrawalView() {
   const balEl = document.getElementById('withdraw-available-bal');
@@ -616,22 +617,28 @@ async function loadWithdrawalView() {
     balEl.textContent = formatNaira(currentUser.withdrawable_balance);
   }
   if (!summaryEl) return;
+
   try {
     const res = await fetch('/api/bank?action=get_user_bank', { credentials: 'include' });
     const data = await res.json();
     if (data.success && data.bank) {
+      userHasLinkedBank = true;
       summaryEl.innerHTML = `
         <strong>Linked Bank:</strong> ${data.bank.bank_name}<br>
         <strong>Account Number:</strong> ${data.bank.account_number}<br>
         <strong>Account Name:</strong> ${data.bank.account_holder}
       `;
     } else {
+      userHasLinkedBank = false;
       summaryEl.innerHTML = `
-        <p style="color:var(--warning);">No withdrawal bank account linked yet.</p>
-        <button class="btn btn-sm btn-primary" style="margin-top:8px;" onclick="switchView('bank-card')">Link Bank Card Now</button>
+        <p style="color:var(--warning, #ff9800); font-size:13px; margin-bottom:8px;">
+          <i class="fa-solid fa-triangle-exclamation"></i> No withdrawal bank account linked yet.
+        </p>
+        <button class="btn btn-sm btn-primary" onclick="switchView('bank-card')">Link Bank Card Now</button>
       `;
     }
   } catch (e) {
+    userHasLinkedBank = false;
     summaryEl.innerHTML = '<p>Unable to verify linked bank account.</p>';
   }
 }
@@ -746,6 +753,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Login Submission
   if (loginForm) {
     loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -787,6 +795,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Register Submission
   if (regForm) {
     regForm.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -824,6 +833,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Quick Amount Buttons
   document.querySelectorAll('.amount-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.amount-btn').forEach(b => b.classList.remove('active'));
@@ -833,6 +843,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // Proceed to Payment Screen
   const proceedPayBtn = document.getElementById('btn-proceed-to-payment');
   if (proceedPayBtn) {
     proceedPayBtn.addEventListener('click', async () => {
@@ -876,6 +887,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Copy Helpers
   const copyAccBtn = document.getElementById('btn-copy-account');
   if (copyAccBtn) {
     copyAccBtn.addEventListener('click', () => {
@@ -899,6 +911,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Save Bank Details Form
   const dedicatedBankForm = document.getElementById('form-dedicated-bank');
   if (dedicatedBankForm) {
     dedicatedBankForm.addEventListener('submit', async (e) => {
@@ -922,7 +935,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const data = await res.json();
         if (data.success) {
           showToast('Bank details saved successfully!');
-          switchView('profile');
+          userHasLinkedBank = true;
+          switchView('withdrawal');
         } else {
           showToast(data.message || 'Failed to save bank.');
         }
@@ -932,6 +946,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Gift Code Claim Form
   const giftForm = document.getElementById('form-page-gift');
   if (giftForm) {
     giftForm.addEventListener('submit', async (e) => {
@@ -959,15 +974,25 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Withdrawal Submit Button with Active Bank Pre-check
   const submitWithBtn = document.getElementById('btn-submit-withdraw');
   if (submitWithBtn) {
     submitWithBtn.addEventListener('click', async () => {
       const input = document.getElementById('input-withdraw-amount');
       const amount = Number(input ? input.value : 0);
+
       if (!amount || amount < 1000) {
-        showToast('Minimum withdrawal is ₦1,000');
+        showToast('Minimum withdrawal amount is ₦1,000');
         return;
       }
+
+      // Check if user has linked a bank card before submitting
+      if (!userHasLinkedBank) {
+        showToast('No bank account linked. Redirecting to link bank card...');
+        setTimeout(() => switchView('bank-card'), 1200);
+        return;
+      }
+
       try {
         const res = await fetch('/api/withdraw', {
           method: 'POST',
@@ -976,19 +1001,28 @@ document.addEventListener('DOMContentLoaded', () => {
           body: JSON.stringify({ amount })
         });
         const data = await res.json();
+
         if (data.success) {
-          showToast('Withdrawal submitted for processing!');
-          switchView('profile');
+          showToast(data.message || 'Withdrawal submitted successfully!');
+          input.value = '';
+          loadProfileData();
+          loadWithdrawalView();
         } else {
-          showToast(data.message || 'Withdrawal failed.');
+          if (data.code === 'NO_BANK') {
+            showToast(data.message);
+            setTimeout(() => switchView('bank-card'), 1200);
+          } else {
+            showToast(data.message || 'Withdrawal failed. Please check your balance.');
+          }
         }
       } catch (e) {
-        showToast('Error submitting withdrawal request.');
+        showToast('Network error submitting withdrawal request.');
       }
     });
   }
 });
 
+// Transaction History Records Loader
 async function loadHistory(type) {
   const titleEl = document.getElementById('history-page-title');
   const itemsEl = document.getElementById('history-page-items');
