@@ -47,19 +47,15 @@ function getWithdrawBal(u) {
   return 0;
 }
 
-// Universal helper to fetch all user investments across schema variations
 async function fetchAllInvestments(sql) {
   let rawInvestments = [];
 
-  // 1. Try user_products
   try {
     rawInvestments = await sql`SELECT * FROM user_products ORDER BY id DESC`;
   } catch (e1) {
-    // 2. Try user_investments
     try {
       rawInvestments = await sql`SELECT * FROM user_investments ORDER BY id DESC`;
     } catch (e2) {
-      // 3. Try purchases
       try {
         rawInvestments = await sql`SELECT * FROM purchases ORDER BY id DESC`;
       } catch (e3) {
@@ -174,7 +170,7 @@ export default async function handler(req, res) {
     }
 
     // -------------------------------------------------------------
-    // 2. USERS
+    // 2. USERS & FULL CONTROLS
     // -------------------------------------------------------------
     if (action === 'users') {
       const rawUsers = await sql`SELECT * FROM users ORDER BY id DESC`;
@@ -197,25 +193,46 @@ export default async function handler(req, res) {
 
       if (!rawUser) return res.status(404).json({ error: 'User account not found' });
 
+      const [deposits, withdrawals, allInvestments] = await Promise.all([
+        sql`SELECT * FROM deposits WHERE user_id = ${user_id} ORDER BY id DESC LIMIT 50`.catch(() => []),
+        sql`SELECT * FROM withdrawals WHERE user_id = ${user_id} ORDER BY id DESC LIMIT 50`.catch(() => []),
+        fetchAllInvestments(sql)
+      ]);
+
+      const purchases = allInvestments.filter(inv => String(inv.user_id) === String(user_id));
+
+      // Calculate total investments for this specific user
+      const totalUserInvested = purchases
+        .filter(p => p.status.toLowerCase() === 'active')
+        .reduce((sum, p) => sum + Number(p.price || 0), 0);
+
+      // True calculation of approved deposits
+      const approvedDepositsTotal = deposits
+        .filter(d => String(d.status).toLowerCase() === 'approved')
+        .reduce((sum, d) => sum + Number(d.amount || 0), 0);
+
+      // Fallback to column if exists and higher
+      const finalDeposited = Math.max(Number(rawUser.total_deposited || 0), approvedDepositsTotal);
+
+      // True calculation of approved withdrawals
+      const approvedWithdrawalsTotal = withdrawals
+        .filter(w => String(w.status).toLowerCase() === 'approved')
+        .reduce((sum, w) => sum + Number(w.amount || 0), 0);
+
+      const finalWithdrawn = Math.max(Number(rawUser.total_withdrawn || 0), approvedWithdrawalsTotal);
+
       const user = {
         id: rawUser.id,
         phone_number: rawUser.phone_number || rawUser.phone || 'Investor',
         referral_code: rawUser.referral_code || '---',
         deposit_balance: getDepositBal(rawUser),
         withdrawable_balance: getWithdrawBal(rawUser),
-        total_deposited: Number(rawUser.total_deposited || 0),
-        total_withdrawn: Number(rawUser.total_withdrawn || 0),
+        total_deposited: finalDeposited,
+        total_withdrawn: finalWithdrawn,
+        total_invested: totalUserInvested,
         is_banned: Boolean(rawUser.is_banned),
         created_at: rawUser.created_at
       };
-
-      const [deposits, withdrawals, allInvestments] = await Promise.all([
-        sql`SELECT * FROM deposits WHERE user_id = ${user_id} ORDER BY id DESC LIMIT 20`.catch(() => []),
-        sql`SELECT * FROM withdrawals WHERE user_id = ${user_id} ORDER BY id DESC LIMIT 20`.catch(() => []),
-        fetchAllInvestments(sql)
-      ]);
-
-      const purchases = allInvestments.filter(inv => String(inv.user_id) === String(user_id));
 
       return res.status(200).json({ success: true, user, deposits, withdrawals, purchases });
     }
@@ -289,7 +306,7 @@ export default async function handler(req, res) {
     }
 
     // -------------------------------------------------------------
-    // 3. INVESTMENTS (FULL SCAN ACROSS ALL TABLES)
+    // 3. INVESTMENTS
     // -------------------------------------------------------------
     if (action === 'investments') {
       const investments = await fetchAllInvestments(sql);
