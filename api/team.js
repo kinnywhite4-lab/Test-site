@@ -65,18 +65,22 @@ export default async function handler(req, res) {
       FROM users 
       WHERE referred_by = ${user.id} 
       ORDER BY created_at DESC
-    `;
+    `.catch(() => []);
 
-    const t1Ids = team1Users.map(u => u.id);
+    const t1Ids = (team1Users || []).map(u => u.id);
 
     let team2Users = [];
     if (t1Ids.length > 0) {
-      team2Users = await sql`
-        SELECT id, phone_number, created_at, referred_by 
-        FROM users 
-        WHERE referred_by IN ${sql(t1Ids)} 
-        ORDER BY created_at DESC
-      `;
+      try {
+        team2Users = await sql`
+          SELECT id, phone_number, created_at, referred_by 
+          FROM users 
+          WHERE referred_by = ANY(${t1Ids}) 
+          ORDER BY created_at DESC
+        `;
+      } catch (e) {
+        team2Users = [];
+      }
     }
 
     let t1Commissions = [];
@@ -116,16 +120,16 @@ export default async function handler(req, res) {
       `;
     } catch {}
 
-    const team1TotalIncome = t1Commissions.reduce((acc, c) => acc + parseFloat(c.commission_amount || 0), 0);
-    const team2TotalIncome = t2Commissions.reduce((acc, c) => acc + parseFloat(c.commission_amount || 0), 0);
-    const mask = (p) => (p && p.length > 6 ? p.substring(0, 3) + '****' + p.substring(p.length - 2) : 'User #' + p);
+    const team1TotalIncome = (t1Commissions || []).reduce((acc, c) => acc + parseFloat(c.commission_amount || 0), 0);
+    const team2TotalIncome = (t2Commissions || []).reduce((acc, c) => acc + parseFloat(c.commission_amount || 0), 0);
+    const mask = (p) => (p && String(p).length > 6 ? String(p).substring(0, 3) + '****' + String(p).substring(String(p).length - 2) : 'User #' + p);
 
     return res.status(200).json({
       success: true,
       team1: {
-        total_members: team1Users.length,
+        total_members: (team1Users || []).length,
         total_income: team1TotalIncome,
-        records: t1Commissions.map(c => ({
+        records: (t1Commissions || []).map(c => ({
           user_id: c.buyer_id,
           phone: mask(c.phone_number || String(c.buyer_id)),
           product_name: c.product_name,
@@ -135,9 +139,9 @@ export default async function handler(req, res) {
         }))
       },
       team2: {
-        total_members: team2Users.length,
+        total_members: (team2Users || []).length,
         total_income: team2TotalIncome,
-        records: t2Commissions.map(c => ({
+        records: (t2Commissions || []).map(c => ({
           user_id: c.buyer_id,
           phone: mask(c.phone_number || String(c.buyer_id)),
           product_name: c.product_name,
