@@ -45,7 +45,11 @@ export default async function handler(req, res) {
 
   try {
     const cookies = parseCookies(req);
-    const sessionUserId = cookies['novavest_session'] || req.query.user_id || req.headers['x-user-id'];
+    const sessionUserId = cookies['novavest_session'] || 
+                          cookies['token'] || 
+                          req.query.user_id || 
+                          req.headers['x-user-id'] || 
+                          req.headers['authorization']?.replace('Bearer ', '');
 
     // 1. Fetch products
     let rawProducts = [];
@@ -90,7 +94,7 @@ export default async function handler(req, res) {
       };
     });
 
-    // 2. Fetch platform settings
+    // 2. Fetch settings
     const settings = {
       withdrawals_enabled: 'true',
       withdrawal_fee_percent: '10',
@@ -108,7 +112,17 @@ export default async function handler(req, res) {
     let myEquipment = [];
 
     if (sessionUserId) {
-      const userRows = await sql`SELECT * FROM users WHERE id = ${sessionUserId} LIMIT 1`.catch(() => []);
+      let userRows = [];
+      try {
+        userRows = await sql`SELECT * FROM users WHERE id::text = ${String(sessionUserId)} LIMIT 1`;
+      } catch (eSql) {
+        try {
+          userRows = await sql`SELECT * FROM users WHERE id = ${sessionUserId} LIMIT 1`;
+        } catch (eSql2) {
+          userRows = [];
+        }
+      }
+
       let rawUser = userRows[0];
 
       if (rawUser && !rawUser.is_banned) {
@@ -116,14 +130,14 @@ export default async function handler(req, res) {
         let tableName = 'user_products';
 
         try {
-          rawPurchases = await sql`SELECT * FROM user_products WHERE user_id = ${sessionUserId} ORDER BY id DESC`;
+          rawPurchases = await sql`SELECT * FROM user_products WHERE user_id::text = ${String(rawUser.id)} ORDER BY id DESC`;
         } catch (e1) {
           try {
-            rawPurchases = await sql`SELECT * FROM user_investments WHERE user_id = ${sessionUserId} ORDER BY id DESC`;
+            rawPurchases = await sql`SELECT * FROM user_investments WHERE user_id::text = ${String(rawUser.id)} ORDER BY id DESC`;
             tableName = 'user_investments';
           } catch (e2) {
             try {
-              rawPurchases = await sql`SELECT * FROM purchases WHERE user_id = ${sessionUserId} ORDER BY id DESC`;
+              rawPurchases = await sql`SELECT * FROM purchases WHERE user_id::text = ${String(rawUser.id)} ORDER BY id DESC`;
               tableName = 'purchases';
             } catch (e3) {
               rawPurchases = [];
@@ -147,7 +161,6 @@ export default async function handler(req, res) {
           const createdMs = item.created_at ? new Date(item.created_at).getTime() : now;
           let lastDropMs = item.last_drop_time ? new Date(item.last_drop_time).getTime() : createdMs;
 
-          // Check for overdue 24-hr cycles
           const intervalMs = 24 * 60 * 60 * 1000;
           const cyclesDue = Math.floor((now - lastDropMs) / intervalMs);
 
@@ -156,7 +169,6 @@ export default async function handler(req, res) {
             totalPendingIncomeToCredit += addedIncome;
             lastDropMs = lastDropMs + (cyclesDue * intervalMs);
 
-            // Update product record asynchronously
             sql`
               UPDATE ${sql(tableName)}
               SET last_drop_time = ${new Date(lastDropMs).toISOString()},
@@ -166,8 +178,6 @@ export default async function handler(req, res) {
           }
 
           const nextDropTime = new Date(lastDropMs + intervalMs).toISOString();
-
-          // Calculate total dropped so far
           const daysElapsed = Math.min(days, Math.max(0, Math.floor((now - createdMs) / intervalMs)));
           const droppedIncome = daysElapsed * daily;
           const remainingIncome = Math.max(0, totalRev - droppedIncome);
@@ -193,7 +203,6 @@ export default async function handler(req, res) {
           };
         });
 
-        // Credit withdrawable balance if income drops were due
         let currentWithdrawable = getWithdrawBal(rawUser);
         if (totalPendingIncomeToCredit > 0) {
           currentWithdrawable += totalPendingIncomeToCredit;
@@ -201,14 +210,14 @@ export default async function handler(req, res) {
             await sql`
               UPDATE users 
               SET withdrawable_balance = COALESCE(withdrawable_balance, 0) + ${totalPendingIncomeToCredit}
-              WHERE id = ${sessionUserId}
+              WHERE id::text = ${String(rawUser.id)}
             `;
           } catch (errBal) {
             try {
               await sql`
                 UPDATE users 
                 SET income_balance = COALESCE(income_balance, 0) + ${totalPendingIncomeToCredit}
-                WHERE id = ${sessionUserId}
+                WHERE id::text = ${String(rawUser.id)}
               `;
             } catch (errBal2) {}
           }
