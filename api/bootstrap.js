@@ -1,98 +1,126 @@
 import { neon } from '@neondatabase/serverless';
-import crypto from 'crypto';
 
-const sql = neon(process.env.DATABASE_URL);
-
-const SESSION_SECRET = process.env.SESSION_SECRET || 'novavest_secure_session_secret_2026';
-
-function verifySessionToken(token) {
-  if (!token || typeof token !== 'string') return null;
-  const parts = token.split('.');
-  if (parts.length !== 2) return null;
-  const [payload, signature] = parts;
-  const expectedSignature = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
-  if (signature !== expectedSignature) return null;
-  try {
-    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
-    if (Date.now() > data.exp) return null;
-    return data.uid;
-  } catch {
-    return null;
-  }
+function getDb() {
+  const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+  if (!dbUrl) throw new Error('DATABASE_URL environment variable is missing.');
+  return neon(dbUrl);
 }
 
 function parseCookies(req) {
   const list = {};
-  const rc = req && req.headers && req.headers.cookie;
-  if (!rc) return list;
-  rc.split(';').forEach(cookie => {
-    const parts = cookie.split('=');
-    list[parts.shift().trim()] = decodeURI(parts.join('='));
-  });
+  const rc = req.headers.cookie;
+  if (rc) {
+    rc.split(';').forEach(cookie => {
+      const parts = cookie.split('=');
+      list[parts.shift().trim()] = decodeURI(parts.join('='));
+    });
+  }
   return list;
 }
 
+function getDepositBal(u) {
+  if (u.deposit_balance !== undefined && u.deposit_balance !== null) return Number(u.deposit_balance);
+  if (u.balance !== undefined && u.balance !== null) return Number(u.balance);
+  if (u.recharge_balance !== undefined && u.recharge_balance !== null) return Number(u.recharge_balance);
+  if (u.wallet_balance !== undefined && u.wallet_balance !== null) return Number(u.wallet_balance);
+  return 0;
+}
+
+function getWithdrawBal(u) {
+  if (u.withdrawable_balance !== undefined && u.withdrawable_balance !== null) return Number(u.withdrawable_balance);
+  if (u.withdrawal_balance !== undefined && u.withdrawal_balance !== null) return Number(u.withdrawal_balance);
+  if (u.income_balance !== undefined && u.income_balance !== null) return Number(u.income_balance);
+  return 0;
+}
+
 export default async function handler(req, res) {
-  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,POST');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
-  const cookies = parseCookies(req);
-  const authHeader = req.headers && req.headers.authorization;
-  const token = cookies.novavest_session || (authHeader && authHeader.replace('Bearer ', ''));
-  const userId = verifySessionToken(token);
-
-  if (!userId) {
-    return res.status(401).json({ error: 'Please log in to continue.' });
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
   }
 
+  const sql = getDb();
+
   try {
-    const userRes = await sql`
-      SELECT id, phone_number, balance, withdrawable_balance, total_income, total_withdrawn, referral_code, referred_by 
-      FROM users WHERE id = ${userId}
-    `;
+    const cookies = parseCookies(req);
+    const sessionUserId = cookies['novavest_session'];
 
-    const user = userRes[0];
-    if (!user) {
-      return res.status(401).json({ error: 'User not found.' });
+    // 1. Fetch Products
+    const rawProducts = await sql`SELECT * FROM products ORDER BY price ASC`.catch(() => []);
+    const products = rawProducts.map(p => ({
+      id: p.id,
+      name: p.name,
+      price: Number(p.price || 0),
+      daily_yield: Number(p.daily_yield || p.daily_income || 0),
+      daily_income: Number(p.daily_yield || p.daily_income || 0),
+      duration_days: Number(p.duration_days || p.period_days || 30),
+      period_days: Number(p.duration_days || p.period_days || 30),
+      total_revenue: Number((p.daily_yield || p.daily_income || 0) * (p.duration_days || p.period_days || 30))
+    }));
+
+    // 2. Fetch System Settings
+    const settingRows = await sql`SELECT key, value FROM settings`.catch(() => []);
+    const settings = {
+      withdrawals_enabled: 'true',
+      withdrawal_fee_percent: '10',
+      min_withdrawal: '1000',
+      telegram_group: 'https://t.me/novavest_group',
+      telegram_channel: 'https://t.me/novavest_channel'
+    };
+    settingRows.forEach(r => { settings[r.key] = r.value; });
+
+    // 3. User Details & User Investments (if authenticated)
+    let user = null;
+    let myProducts = [];
+
+    if (sessionUserId) {
+      const userRows = await sql`SELECT * FROM users WHERE id = ${sessionUserId} LIMIT 1`.catch(() => []);
+      const rawUser = userRows[0];
+
+      if (rawUser && !rawUser.is_banned) {
+        user = {
+          id: rawUser.id,
+          phone: rawUser.phone || rawUser.phone_number || '',
+          referral_code: rawUser.referral_code || '',
+          deposit_balance: getDepositBal(rawUser),
+          withdrawable_balance: getWithdrawBal(rawUser),
+          total_deposited: Number(rawUser.total_deposited || 0),
+          total_withdrawn: Number(rawUser.total_withdrawn || 0),
+          created_at: rawUser.created_at
+        };
+
+        // Fetch User Purchased Investments
+        try {
+          myProducts = await sql`
+            SELECT up.*, p.name, p.price, p.daily_yield, p.duration_days
+            FROM user_products up
+            LEFT JOIN products p ON up.product_id = p.id
+            WHERE up.user_id = ${sessionUserId}
+            ORDER BY up.id DESC
+          `;
+        } catch (e1) {
+          try {
+            myProducts = await sql`SELECT * FROM user_investments WHERE user_id = ${sessionUserId} ORDER BY id DESC`;
+          } catch (e2) {
+            myProducts = await sql`SELECT * FROM purchases WHERE user_id = ${sessionUserId} ORDER BY id DESC`.catch(() => []);
+          }
+        }
+      }
     }
-
-    let bank = null;
-    let purchases = [];
-    let deposits = [];
-    let withdrawals = [];
-    let transactions = [];
-
-    try {
-      const bankRes = await sql`SELECT bank_name, account_number, account_name FROM bank_cards WHERE user_id = ${userId}`;
-      bank = bankRes[0] || null;
-    } catch {}
-
-    try {
-      purchases = await sql`SELECT * FROM purchases WHERE user_id = ${userId} ORDER BY created_at DESC`;
-    } catch {}
-
-    try {
-      deposits = await sql`SELECT * FROM deposits WHERE user_id = ${userId} ORDER BY created_at DESC`;
-    } catch {}
-
-    try {
-      withdrawals = await sql`SELECT * FROM withdrawals WHERE user_id = ${userId} ORDER BY created_at DESC`;
-    } catch {}
-
-    try {
-      transactions = await sql`SELECT * FROM transactions WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT 50`;
-    } catch {}
 
     return res.status(200).json({
       success: true,
       user,
-      bank,
-      purchases,
-      deposits,
-      withdrawals,
-      transactions
+      products,
+      settings,
+      myProducts
     });
-  } catch (err) {
-    console.error('Bootstrap Critical Error:', err);
-    return res.status(500).json({ error: 'Failed to load user profile.' });
+
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message || 'Error loading dashboard' });
   }
 }
