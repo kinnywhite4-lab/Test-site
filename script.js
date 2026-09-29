@@ -312,7 +312,7 @@ async function buyProduct(productId) {
 }
 
 // -------------------------------------------------------------
-// ACTIVE PRODUCTS: 24-HOUR ROLLING COUNTDOWN FROM PURCHASE TIME
+// ACTIVE PRODUCTS: 24-HOUR ROLLING COUNTDOWN
 // -------------------------------------------------------------
 async function loadMyActiveProducts() {
   const container = document.getElementById('my-product-list') || 
@@ -351,8 +351,6 @@ async function loadMyActiveProducts() {
       const droppedIncome = Number(up.dropped_income !== undefined ? up.dropped_income : 0);
       const remainingIncome = Number(up.remaining_income !== undefined ? up.remaining_income : Math.max(0, totalRev - droppedIncome));
 
-      // Calculate strictly from purchase time (created_at):
-      // Each cycle is 24 hours. The next drop is the end of the current 24-hour cycle.
       const createdMs = up.created_at ? new Date(up.created_at).getTime() : now;
       const elapsed = Math.max(0, now - createdMs);
       const completedCycles = Math.floor(elapsed / DAY_MS);
@@ -410,7 +408,6 @@ async function loadMyActiveProducts() {
         const purchaseId = t.getAttribute('data-purchase-id');
         let diff = target - currentTime;
 
-        // If the cycle completes, trigger claim and calculate the next 24-hr milestone
         if (diff <= 0) {
           t.textContent = "00:00:00";
 
@@ -431,7 +428,6 @@ async function loadMyActiveProducts() {
                 loadProfileData();
                 loadMyActiveProducts();
               } else {
-                // If claim returned that countdown wasn't ready, advance target by 24h
                 t.setAttribute('data-target', String(currentTime + DAY_MS));
                 delete claimingMap[purchaseId];
               }
@@ -440,7 +436,6 @@ async function loadMyActiveProducts() {
             });
           }
         } else {
-          // Keep ticking down normally
           const hrs = Math.floor(diff / (1000 * 60 * 60));
           const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
           const secs = Math.floor((diff % (1000 * 60)) / 1000);
@@ -570,7 +565,7 @@ function renderTeamTierTable(tier, overviewData) {
 }
 
 // -------------------------------------------------------------
-// RECHARGE LOGIC
+// RECHARGE LOGIC (RESTORED & COMPLETE)
 // -------------------------------------------------------------
 async function loadRechargeView() {
   const sSelect = document.getElementById('recharge-stage-select');
@@ -580,9 +575,11 @@ async function loadRechargeView() {
 
   const channelsWrap = document.getElementById('payment-channels-list');
   if (!channelsWrap) return;
+
   try {
     const res = await fetch('/api/bank?action=deposit_channels', { credentials: 'include' });
     const data = await res.json();
+
     if (data.success && data.channels && data.channels.length > 0) {
       currentSelectedChannelId = data.channels[0].id;
       channelsWrap.innerHTML = data.channels.map((ch, idx) => `
@@ -595,7 +592,7 @@ async function loadRechargeView() {
         </div>
       `).join('');
     } else {
-      channelsWrap.innerHTML = '<div class="empty-state">No payment channels active.</div>';
+      channelsWrap.innerHTML = '<div class="empty-state">No payment channel active.</div>';
     }
   } catch (e) {
     channelsWrap.innerHTML = '<div class="empty-state">Failed to load channels.</div>';
@@ -606,7 +603,7 @@ function selectPaymentChannel(id, el) {
   currentSelectedChannelId = id;
   const options = document.querySelectorAll('.channel-option');
   options.forEach(o => o.classList.remove('active'));
-  el.classList.add('active');
+  if (el) el.classList.add('active');
 }
 
 // -------------------------------------------------------------
@@ -749,7 +746,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Robust Login Submission Handler
   if (loginForm) {
     loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -767,7 +763,6 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (data.success) {
           showToast('Welcome back!');
-          
           const uid = (data.user && data.user.id) || data.userId || data.id || phone;
           localStorage.setItem('novavest_session', uid);
           
@@ -792,7 +787,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Register Form Handler
   if (regForm) {
     regForm.addEventListener('submit', async (e) => {
       e.preventDefault();
