@@ -1,11 +1,12 @@
 /* =============================================================
-   NovaVest Main Client Controller (Countdown & Team Fixed)
+   NovaVest Main Client Controller (Complete Full Build)
 ============================================================= */
 let currentUser = null;
 let currentSettings = null;
 let activeTeamTier = 1;
 let currentSelectedChannelId = null;
 let timerInterval = null;
+let currentTeamData = null;
 
 // Helper: Show standard toast
 function showToast(message) {
@@ -307,7 +308,7 @@ async function loadMyActiveProducts() {
       const droppedIncome = Number(up.dropped_income || up.total_earned || (daysElapsed * dailyYield));
       const remainingIncome = Math.max(0, totalRev - droppedIncome);
 
-      // Next 24-hr income drop time calculation
+      // Next 24-hr income drop calculation
       let nextDropMs;
       if (up.next_drop_time) {
         nextDropMs = new Date(up.next_drop_time).getTime();
@@ -358,7 +359,6 @@ async function loadMyActiveProducts() {
       `;
     }).join('');
 
-    // Start live countdown updater
     function updateCountdowns() {
       const timers = document.querySelectorAll('.live-countdown');
       timers.forEach(t => {
@@ -389,15 +389,18 @@ async function loadMyActiveProducts() {
 // -------------------------------------------------------------
 async function loadInviteData() {
   try {
-    const res = await fetch('/api/team?action=invite_info', { credentials: 'include' });
+    const res = await fetch('/api/team?action=invite', { credentials: 'include' });
     const data = await res.json();
     if (data && data.success) {
       const linkInput = document.getElementById('invite-link-val');
       const codeInput = document.getElementById('invite-code-val');
-      if (linkInput) linkInput.value = data.inviteLink || (window.location.origin + '/?ref=' + (data.referralCode || ''));
-      if (codeInput) codeInput.value = data.referralCode || '------';
+
+      if (linkInput) linkInput.value = data.referral_link || '';
+      if (codeInput) codeInput.value = data.referral_code || '------';
     }
-  } catch (e) {}
+  } catch (e) {
+    console.error('Failed to load invite info:', e);
+  }
 }
 
 async function loadTeamData() {
@@ -407,31 +410,34 @@ async function loadTeamData() {
   }
 
   try {
-    // Try multiple endpoints safely in case the API handles plain GET or ?action=overview
-    let res = await fetch('/api/team?action=overview', { credentials: 'include' });
-    if (!res.ok) {
-      res = await fetch('/api/team', { credentials: 'include' });
-    }
+    const res = await fetch('/api/team', { credentials: 'include' });
     const data = await res.json();
+
+    if (!data || !data.success) {
+      if (tbody) {
+        tbody.innerHTML = '<tr><td colspan="3" class="empty-state">Please log in to view team details.</td></tr>';
+      }
+      return;
+    }
+
+    currentTeamData = data;
+
+    const t1 = data.team1 || { total_members: 0, total_income: 0, records: [] };
+    const t2 = data.team2 || { total_members: 0, total_income: 0, records: [] };
 
     const t1Count = document.getElementById('team1-members-count');
     const t1Income = document.getElementById('team1-members-income');
     const t2Count = document.getElementById('team2-members-count');
     const t2Income = document.getElementById('team2-members-income');
 
-    const tier1Count = data.tier1_count || (data.tier1 && data.tier1.length) || 0;
-    const tier1Income = data.tier1_income || data.tier1_commission || 0;
-    const tier2Count = data.tier2_count || (data.tier2 && data.tier2.length) || 0;
-    const tier2Income = data.tier2_income || data.tier2_commission || 0;
-
-    if (t1Count) t1Count.textContent = tier1Count;
-    if (t1Income) t1Income.textContent = formatNaira(tier1Income);
-    if (t2Count) t2Count.textContent = tier2Count;
-    if (t2Income) t2Income.textContent = formatNaira(tier2Income);
+    if (t1Count) t1Count.textContent = t1.total_members || 0;
+    if (t1Income) t1Income.textContent = formatNaira(t1.total_income || 0);
+    if (t2Count) t2Count.textContent = t2.total_members || 0;
+    if (t2Income) t2Income.textContent = formatNaira(t2.total_income || 0);
 
     renderTeamTierTable(activeTeamTier, data);
   } catch (e) {
-    console.error("Team load error:", e);
+    console.error('Team load error:', e);
     if (tbody) {
       tbody.innerHTML = '<tr><td colspan="3" class="empty-state">No members in your team yet.</td></tr>';
     }
@@ -442,6 +448,7 @@ function selectTeamTier(tier) {
   activeTeamTier = tier;
   const c1 = document.getElementById('card-team-tier-1');
   const c2 = document.getElementById('card-team-tier-2');
+
   if (tier === 1) {
     if (c1) c1.classList.add('active');
     if (c2) c2.classList.remove('active');
@@ -453,27 +460,31 @@ function selectTeamTier(tier) {
     const title = document.getElementById('team-active-title');
     if (title) title.textContent = 'Second Referral Members History';
   }
-  loadTeamData();
+
+  if (currentTeamData) {
+    renderTeamTierTable(activeTeamTier, currentTeamData);
+  } else {
+    loadTeamData();
+  }
 }
 
 function renderTeamTierTable(tier, overviewData) {
   const tbody = document.getElementById('team-table-body');
   if (!tbody) return;
 
-  const members = tier === 1 
-    ? (overviewData.tier1_members || overviewData.tier1 || [])
-    : (overviewData.tier2_members || overviewData.tier2 || []);
+  const tierObj = tier === 1 ? overviewData.team1 : overviewData.team2;
+  const records = (tierObj && tierObj.records) ? tierObj.records : [];
 
-  if (!members || members.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="3" class="empty-state">No members joined in Tier ${tier} yet.</td></tr>`;
+  if (!records || records.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="3" class="empty-state">No commission records for Tier ${tier} yet.</td></tr>`;
     return;
   }
 
-  tbody.innerHTML = members.map(m => `
+  tbody.innerHTML = records.map(r => `
     <tr>
-      <td>${m.phone_masked || m.phone || ('ID: ' + m.id)}</td>
-      <td>${m.product_bought || m.equipment || 'No Equipment'}</td>
-      <td class="text-success font-bold">${formatNaira(m.commission_earned || m.commission || 0)}</td>
+      <td>${r.phone || ('User #' + r.user_id)}</td>
+      <td>${r.product_name || 'VIP Equipment'}</td>
+      <td class="text-success font-bold">+${formatNaira(r.commission || 0)}</td>
     </tr>
   `).join('');
 }
