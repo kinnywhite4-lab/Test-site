@@ -6,7 +6,6 @@ function getDb() {
   return neon(dbUrl);
 }
 
-// Resilient Admin Auth Verification
 async function verifyAdminAuth(req, sql) {
   const adminKeyHeader = req.headers['x-admin-key'];
   const cookies = req.headers.cookie || '';
@@ -74,7 +73,7 @@ async function fetchAllInvestments(sql) {
   ]);
 
   const userMap = new Map();
-  allUsers.forEach(u => userMap.set(u.id, u.phone_number || u.phone || `User #${u.id}`));
+  allUsers.forEach(u => userMap.set(u.id, u.phone || u.phone_number || `User #${u.id}`));
 
   const prodMap = new Map();
   allProducts.forEach(p => prodMap.set(p.id, p));
@@ -126,7 +125,7 @@ export default async function handler(req, res) {
 
   try {
     // -------------------------------------------------------------
-    // 1. DASHBOARD METRICS
+    // 1. DASHBOARD OVERVIEW METRICS
     // -------------------------------------------------------------
     if (action === 'dashboard') {
       const [allUsers, investments] = await Promise.all([
@@ -170,13 +169,13 @@ export default async function handler(req, res) {
     }
 
     // -------------------------------------------------------------
-    // 2. USERS & FULL CONTROLS
+    // 2. USERS MANAGEMENT & DETAILS
     // -------------------------------------------------------------
     if (action === 'users') {
       const rawUsers = await sql`SELECT * FROM users ORDER BY id DESC`;
       const users = rawUsers.map(u => ({
         id: u.id,
-        phone_number: u.phone_number || u.phone || 'Investor',
+        phone_number: u.phone || u.phone_number || 'Investor',
         referral_code: u.referral_code || '---',
         deposit_balance: getDepositBal(u),
         withdrawable_balance: getWithdrawBal(u),
@@ -201,20 +200,16 @@ export default async function handler(req, res) {
 
       const purchases = allInvestments.filter(inv => String(inv.user_id) === String(user_id));
 
-      // Calculate total investments for this specific user
       const totalUserInvested = purchases
         .filter(p => p.status.toLowerCase() === 'active')
         .reduce((sum, p) => sum + Number(p.price || 0), 0);
 
-      // True calculation of approved deposits
       const approvedDepositsTotal = deposits
         .filter(d => String(d.status).toLowerCase() === 'approved')
         .reduce((sum, d) => sum + Number(d.amount || 0), 0);
 
-      // Fallback to column if exists and higher
       const finalDeposited = Math.max(Number(rawUser.total_deposited || 0), approvedDepositsTotal);
 
-      // True calculation of approved withdrawals
       const approvedWithdrawalsTotal = withdrawals
         .filter(w => String(w.status).toLowerCase() === 'approved')
         .reduce((sum, w) => sum + Number(w.amount || 0), 0);
@@ -223,7 +218,7 @@ export default async function handler(req, res) {
 
       const user = {
         id: rawUser.id,
-        phone_number: rawUser.phone_number || rawUser.phone || 'Investor',
+        phone_number: rawUser.phone || rawUser.phone_number || 'Investor',
         referral_code: rawUser.referral_code || '---',
         deposit_balance: getDepositBal(rawUser),
         withdrawable_balance: getWithdrawBal(rawUser),
@@ -238,7 +233,7 @@ export default async function handler(req, res) {
     }
 
     if (action === 'adjust-balance') {
-      const { user_id, wallet_type, direction, amount, reason } = req.body || {};
+      const { user_id, wallet_type, direction, amount } = req.body || {};
       const numAmt = parseFloat(amount);
       if (isNaN(numAmt) || numAmt <= 0) return res.status(400).json({ error: 'Please enter a valid numeric amount.' });
 
@@ -331,7 +326,7 @@ export default async function handler(req, res) {
       ]);
 
       const userMap = new Map();
-      allUsers.forEach(u => userMap.set(u.id, u.phone_number || u.phone || `User #${u.id}`));
+      allUsers.forEach(u => userMap.set(u.id, u.phone || u.phone_number || `User #${u.id}`));
 
       const deposits = rawDeposits.map(d => ({
         id: d.id,
@@ -395,7 +390,7 @@ export default async function handler(req, res) {
       ]);
 
       const userMap = new Map();
-      allUsers.forEach(u => userMap.set(u.id, u.phone_number || u.phone || `User #${u.id}`));
+      allUsers.forEach(u => userMap.set(u.id, u.phone || u.phone_number || `User #${u.id}`));
 
       const withdrawals = rawWithdrawals.map(w => ({
         id: w.id,
