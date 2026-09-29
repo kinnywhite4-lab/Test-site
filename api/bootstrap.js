@@ -47,9 +47,9 @@ export default async function handler(req, res) {
 
   try {
     const cookies = parseCookies(req);
-    const sessionUserId = cookies['novavest_session'];
+    const sessionUserId = cookies['novavest_session'] || req.query.user_id || req.headers['x-user-id'];
 
-    // 1. Fetch Catalog Products safely
+    // 1. Retrieve products catalog
     let rawProducts = [];
     try {
       rawProducts = await sql`SELECT * FROM products ORDER BY price ASC`;
@@ -70,8 +70,6 @@ export default async function handler(req, res) {
       const price = Number(p.price || 0);
       const daily = Number(p.daily_yield || p.daily_income || 0);
       const days = Number(p.duration_days || p.period_days || 30);
-      const rev = Number(p.total_revenue || (daily * days) || (price * 1.5));
-
       return {
         id: p.id,
         name: p.name || 'VIP Equipment',
@@ -82,11 +80,11 @@ export default async function handler(req, res) {
         daily_income: daily,
         duration_days: days,
         period_days: days,
-        total_revenue: rev
+        total_revenue: Number(p.total_revenue || (daily * days))
       };
     });
 
-    // 2. Fetch System Settings
+    // 2. Retrieve system settings
     const settings = {
       withdrawals_enabled: 'true',
       withdrawal_fee_percent: '10',
@@ -100,7 +98,7 @@ export default async function handler(req, res) {
       settingRows.forEach(r => { settings[r.key] = r.value; });
     } catch (e) {}
 
-    // 3. Fetch User and Purchases
+    // 3. Retrieve user record and active equipment
     let user = null;
     let myProducts = [];
 
